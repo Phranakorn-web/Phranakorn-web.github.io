@@ -1,0 +1,1335 @@
+<?php 
+// =========================================================================
+// --- ระบบเบิกจ่ายสินค้าออกจากคลังสินค้า (เพิ่มสิน WMS Pro 2026 v7.0 Outbound Ultimate) ---
+// =========================================================================
+session_start();
+date_default_timezone_set('Asia/Bangkok');
+
+if (isset($_POST['ajax_set_theme'])) {
+    $_SESSION['phemsin_theme'] = $_POST['theme'];
+    http_response_code(200);
+    exit;
+}
+
+$current_theme = isset($_SESSION['phemsin_theme']) ? $_SESSION['phemsin_theme'] : 'theme-light-ocean';
+?>
+
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบเบิกจ่ายสินค้าออกจากคลัง (เพิ่มสิน WMS Pro 2026 v7.0 Outbound Edition)</title>
+    
+    <!-- Font Awesome & Google Fonts -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- External Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        /* ==========================================
+           DYNAMIC LIGHT-FOCUSED THEME ENGINE (2026)
+        ========================================== */
+        :root, body.theme-light-ocean {
+            --bg-primary: #f0f9ff;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #e0f2fe;
+            --border-color: #bae6fd;
+            --text-main: #0369a1;
+            --text-muted: #0284c7;
+            --card-bg: #ffffff;
+            --header-bg: #bae6fd;
+            --accent-blue: #0284c7;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-purple: #8b5cf6;
+        }
+
+        body.theme-light-emerald {
+            --bg-primary: #f0fdf4;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #dcfce7;
+            --border-color: #a7f3d0;
+            --text-main: #14532d;
+            --text-muted: #16a34a;
+            --card-bg: #ffffff;
+            --header-bg: #bbf7d0;
+            --accent-blue: #059669;
+        }
+
+        body.theme-light-amber {
+            --bg-primary: #fffbeb;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #fef3c7;
+            --border-color: #fde68a;
+            --text-main: #78350f;
+            --text-muted: #d97706;
+            --card-bg: #ffffff;
+            --header-bg: #fde68a;
+            --accent-blue: #d97706;
+        }
+
+        body.theme-light-sakura {
+            --bg-primary: #fff1f2;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #ffe4e6;
+            --border-color: #fecdd3;
+            --text-main: #9f1239;
+            --text-muted: #e11d48;
+            --card-bg: #ffffff;
+            --header-bg: #fecdd3;
+            --accent-blue: #be123c;
+        }
+
+        body.theme-light-lavender {
+            --bg-primary: #faf5ff;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #f3e8ff;
+            --border-color: #e9d5ff;
+            --text-main: #581c87;
+            --text-muted: #9333ea;
+            --card-bg: #ffffff;
+            --header-bg: #e9d5ff;
+            --accent-blue: #7e22ce;
+        }
+
+        body.theme-light-slate {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #f1f5f9;
+            --border-color: #e2e8f0;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --card-bg: #ffffff;
+            --header-bg: #e2e8f0;
+            --accent-blue: #2563eb;
+        }
+
+        body.theme-dark-midnight {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --border-color: #475569;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --card-bg: #1e293b;
+            --header-bg: #334155;
+            --accent-blue: #38bdf8;
+        }
+
+        body.theme-dark-cyberpunk {
+            --bg-primary: #180828;
+            --bg-secondary: #240c3e;
+            --bg-tertiary: #3b1860;
+            --border-color: #7c3aed;
+            --text-main: #f3e8ff;
+            --text-muted: #c084fc;
+            --card-bg: #240c3e;
+            --header-bg: #3b1860;
+            --accent-blue: #a855f7;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Prompt', sans-serif !important;
+            background-color: var(--bg-primary) !important;
+            color: var(--text-main) !important;
+            padding: 1.2rem;
+            transition: all 0.3s ease;
+            -webkit-font-smoothing: antialiased;
+        }
+        .mono { font-family: 'JetBrains Mono', monospace !important; }
+
+        /* Security App Container (Hidden by default) */
+        #appContainer { display: none; }
+
+        .header-banner {
+            background: var(--card-bg) !important;
+            border: 2px solid var(--border-color) !important;
+            border-radius: 16px;
+            padding: 1.2rem 1.6rem;
+            margin-bottom: 1.2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .header-title-text {
+            font-size: 1.45rem;
+            font-weight: 800;
+            color: var(--text-main) !important;
+            letter-spacing: -0.2px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .card {
+            background: var(--card-bg) !important;
+            border-radius: 14px;
+            padding: 1.3rem;
+            border: 1.5px solid var(--border-color) !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+            transition: all 0.2s ease;
+            color: var(--text-main) !important;
+            margin-bottom: 1.2rem;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.2rem;
+        }
+        .metric-card {
+            background: var(--card-bg) !important;
+            padding: 1.1rem 1.2rem;
+            border-radius: 12px;
+            border: 1.5px solid var(--border-color) !important;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        }
+        .metric-card .title { font-size: 0.82rem; font-weight: 700; color: var(--text-muted) !important; display:flex; align-items:center; gap:6px; }
+        .metric-card .value { font-size: 1.8rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 6px; color: var(--text-main) !important; }
+
+        .form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 0.7rem; }
+        .form-group label { font-size: 0.82rem; font-weight: 700; color: var(--text-main) !important; }
+        .form-control, .wms-select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1.5px solid var(--border-color) !important;
+            border-radius: 8px;
+            font-size: 0.88rem;
+            outline: none;
+            background: var(--bg-secondary) !important;
+            color: var(--text-main) !important;
+            transition: all 0.2s ease;
+        }
+        .form-control:focus, .wms-select:focus {
+            border-color: var(--accent-red) !important;
+            box-shadow: 0 0 0 3.5px rgba(239, 68, 68, 0.15);
+        }
+
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+            padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 800;
+            cursor: pointer; border: 1px solid transparent; transition: all 0.2s ease; white-space: nowrap; text-decoration: none;
+        }
+        .btn:active { transform: scale(0.98); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-primary { background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff; box-shadow: 0 3px 8px rgba(2, 132, 199, 0.25); }
+        .btn-secondary { background: var(--bg-secondary) !important; color: var(--text-main) !important; border-color: var(--border-color) !important; }
+        .btn-secondary:hover:not(:disabled) { background: var(--bg-tertiary) !important; }
+        .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; box-shadow: 0 3px 8px rgba(239, 68, 68, 0.25); }
+        .btn-danger:hover:not(:disabled) { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); }
+        .btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; }
+        .btn-purple { background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%); color: #fff; }
+
+        .sync-badge {
+            display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px;
+            border-radius: 20px; font-size: 0.8rem; font-weight: 800; background: var(--bg-tertiary);
+            color: var(--accent-red); border: 1.5px solid var(--border-color);
+            white-space: nowrap;
+        }
+        .live-pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--accent-green); box-shadow: 0 0 10px var(--accent-green); animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+
+        .location-badge {
+            display: inline-flex; align-items: center; gap: 4px; font-size: 0.82rem; font-weight: 800;
+            padding: 4px 10px; border-radius: 12px; background: var(--bg-tertiary);
+            color: var(--accent-blue); border: 1.5px solid var(--border-color);
+        }
+
+        .issue-doc-badge {
+            display: inline-flex; align-items: center; gap: 6px; font-size: 0.88rem; font-weight: 800;
+            padding: 4px 12px; border-radius: 20px; background: #fef2f2; color: #dc2626; border: 1.5px solid #fca5a5;
+        }
+
+        .table-container { width: 100%; overflow-x: auto; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { background: var(--bg-tertiary) !important; color: var(--text-main) !important; font-weight: 800; padding: 11px 12px; border-bottom: 2px solid var(--border-color) !important; text-align: left; white-space: nowrap; }
+        td { padding: 9px 12px; border-bottom: 1px solid var(--border-color) !important; vertical-align: middle; color: var(--text-main) !important; }
+        tbody tr:hover { background-color: var(--bg-tertiary) !important; }
+
+        .toast-notification {
+            position: fixed; bottom: 20px; right: 20px; background: #10b981; color: #ffffff;
+            padding: 12px 22px; border-radius: 10px; font-weight: 800; font-size: 0.92rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 99999; display: flex; align-items: center;
+            gap: 10px; opacity: 0; transform: translateY(20px); transition: all 0.3s ease; pointer-events: none;
+        }
+        .toast-notification.show { opacity: 1; transform: translateY(0); }
+        .toast-notification.error-alert { background: #ef4444 !important; }
+
+        .cart-box {
+            background: var(--bg-tertiary); border: 1.5px dashed var(--border-color);
+            border-radius: 10px; padding: 12px; margin-bottom: 0.9rem;
+        }
+        .cart-item-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 12px; background: var(--card-bg); border-radius: 8px;
+            border: 1px solid var(--border-color); margin-bottom: 6px; transition: all 0.2s ease;
+        }
+        .cart-item-row:hover { border-color: var(--accent-red); transform: translateX(2px); }
+
+        .tab-navigation { display: flex; gap: 0.6rem; margin-bottom: 1.2rem; border-bottom: 2px solid var(--border-color); padding-bottom: 0.6rem; }
+        .tab-btn {
+            background: transparent; border: none; padding: 8px 20px; font-weight: 800;
+            color: var(--text-muted); cursor: pointer; border-radius: 20px; transition: all 0.2s ease;
+            display: flex; align-items: center; gap: 8px; font-size: 0.9rem;
+        }
+        .tab-btn.active { background: #fef2f2; color: #dc2626; border: 1.5px solid #fca5a5; }
+
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85);
+            z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px);
+        }
+
+        /* Modal Preview PDF Dynamic Styling */
+        .pdf-preview-box {
+            background: #ffffff; color: #1e293b; width: 90%; max-width: 900px;
+            max-height: 90vh; border-radius: 16px; overflow-y: auto; padding: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35); position: relative;
+        }
+
+        @media (max-width: 900px) {
+            .outbound-grid { grid-template-columns: 1fr !important; }
+        }
+    </style>
+</head>
+<body class="<?php echo $current_theme; ?>">
+
+<!-- Security Lock Modal Gateway -->
+<div id="securityModal" class="modal-overlay" style="display: flex;">
+    <div class="card" style="width: 450px; text-align: center; padding: 2.2rem; margin: 0; box-shadow: 0 25px 50px rgba(0,0,0,0.5); border: 2px solid var(--accent-red);">
+        <div style="font-size: 3.5rem; color: var(--accent-red); margin-bottom: 0.6rem;">
+            <i class="fa-solid fa-shield-halved" style="animation: pulse 1.5s infinite;"></i>
+        </div>
+        <h2 style="font-size: 1.35rem; font-weight: 800; margin-bottom: 0.3rem; color: var(--text-main);">ระบบความปลอดภัยเบิกจ่ายสินค้า</h2>
+        <p style="font-size: 0.83rem; color: var(--text-muted); margin-bottom: 1.2rem;">
+            <span id="autoBioStatusText" style="color:var(--accent-red); font-weight:800;">🔒 กรุณายืนยันตัวตนก่อนเข้าสู่ระบบเบิกจ่าย</span><br>
+            สแกน Touch ID บน MacBook หรือกรอกรหัสผ่านความปลอดภัย
+        </p>
+        
+        <form onsubmit="verifySecurityPassword(event)">
+            <input type="password" id="securityPassInput" class="form-control mono" style="font-size: 1.3rem; text-align: center; font-weight: 800; margin-bottom: 1rem; letter-spacing: 4px;" placeholder="••••" autocomplete="current-password" autofocus required>
+            
+            <div style="display:flex; flex-direction:column; gap:0.6rem; margin-bottom:0.8rem;">
+                <div style="display:flex; gap:0.5rem;">
+                    <button type="submit" class="btn btn-danger" style="flex:1; padding: 0.75rem;">
+                        <i class="fa-solid fa-lock-open"></i> ยืนยันรหัสผ่าน
+                    </button>
+                    <button type="button" class="btn btn-success" id="biometricBtn" style="padding: 0.75rem;" onclick="triggerMacBookTouchIDScan(true)" title="สแกน Touch ID">
+                        <i class="fa-solid fa-fingerprint" style="font-size: 1.2rem;"></i> Touch ID
+                    </button>
+                </div>
+            </div>
+        </form>
+        <p id="secAuthError" style="color: var(--accent-red); font-size: 0.82rem; font-weight: 800; margin-top: 0.8rem; display: none;">❌ รหัสผ่านไม่ถูกต้อง หรือยกเลิกการยืนยันตัวตน</p>
+    </div>
+</div>
+
+<!-- Modal Pop-up Preview สำหรับพิมพ์ใบจ่ายสินค้า (PDF) -->
+<div id="pdfPreviewModal" class="modal-overlay" style="display: none;">
+    <div class="pdf-preview-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #ef4444; padding-bottom:12px; margin-bottom:16px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <i class="fa-solid fa-file-pdf" style="font-size:1.8rem; color:#ef4444;"></i>
+                <h3 style="font-size:1.2rem; font-weight:800; color:#0f172a;">ตัวอย่างเอกสารใบจ่ายสินค้า (PDF Preview)</h3>
+            </div>
+            <button onclick="closePdfPreviewModal()" class="btn btn-secondary" style="border-radius:50%; width:36px; height:36px; padding:0;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div id="pdfModalContent">
+            <!-- ข้อมูลเนื้อหาสำหรับสั่งพิมพ์ PDF จะถูกสร้างด้วย JS ที่นี่ -->
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px; border-top:1px solid #e2e8f0; padding-top:15px;">
+            <button type="button" class="btn btn-secondary" onclick="closePdfPreviewModal()"><i class="fa-solid fa-circle-xmark"></i> ปิดหน้านี้</button>
+            <button type="button" class="btn btn-danger" onclick="triggerPrintFromModal()"><i class="fa-solid fa-print"></i> พิมพ์ใบจ่ายสินค้า / บันทึก PDF</button>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Toast -->
+<div id="wmsToast" class="toast-notification">
+    <i class="fa-solid fa-circle-check"></i> <span id="wmsToastMsg">บันทึกข้อมูลสำเร็จ</span>
+</div>
+
+<!-- MAIN APPLICATION CONTAINER -->
+<div id="appContainer">
+
+    <!-- Header Banner Enterprise -->
+    <header class="header-banner">
+        <div>
+            <h1 class="header-title-text">
+                <i class="fa-solid fa-truck-ramp-box" style="color:var(--accent-red);"></i>
+                <span>ระบบเบิกจ่ายสินค้าออกจากคลัง (Outbound Stock WMS Pro v7.0)</span>
+            </h1>
+            <p style="color: var(--text-muted); font-size: 0.83rem; margin-top:4px; font-weight:600;">
+                <i class="fa-solid fa-shield-check" style="color:var(--accent-green);"></i> Enterprise Maximum Security & High-Speed Outbound Engine
+            </p>
+        </div>
+
+        <div style="display:flex; gap: 0.6rem; flex-wrap: wrap; align-items:center;">
+            <button type="button" id="soundToggleBtn" class="btn btn-secondary" style="font-size:0.8rem;" onclick="toggleAudioFeedback()">
+                <i class="fa-solid fa-volume-high" style="color:var(--accent-green);"></i> เสียงสแกน: เปิด
+            </button>
+
+            <select id="themeSelector" class="wms-select" style="font-weight:800; color:#ef4444; border:2px solid #ef4444; font-size:0.8rem; border-radius:8px; padding:0.4rem 0.7rem; width:auto;" onchange="changeTheme(this.value)">
+                <optgroup label="🎨 ธีมโทนสีอ่อนทันสมัย (Modern Light Themes)">
+                    <option value="theme-light-ocean" <?php echo $current_theme == 'theme-light-ocean' ? 'selected' : ''; ?>>🌊 ฟ้าสดใส (Soft Ocean Light)</option>
+                    <option value="theme-light-emerald" <?php echo $current_theme == 'theme-light-emerald' ? 'selected' : ''; ?>>🍃 เขียวมรกต (Clean Emerald Light)</option>
+                    <option value="theme-light-amber" <?php echo $current_theme == 'theme-light-amber' ? 'selected' : ''; ?>>🌅 อบอุ่น (Sunset Amber Light)</option>
+                    <option value="theme-light-sakura" <?php echo $current_theme == 'theme-light-sakura' ? 'selected' : ''; ?>>🌸 ชมพูซากุระ (Soft Sakura Light)</option>
+                    <option value="theme-light-lavender" <?php echo $current_theme == 'theme-light-lavender' ? 'selected' : ''; ?>>🍧 ลาเวนเดอร์ (Nordic Lavender Light)</option>
+                    <option value="theme-light-slate" <?php echo $current_theme == 'theme-light-slate' ? 'selected' : ''; ?>>☁️ มินิมอลสเกล (Minimal Slate Light)</option>
+                </optgroup>
+                <optgroup label="🌙 ธีมมืด (Dark Themes)">
+                    <option value="theme-dark-midnight" <?php echo $current_theme == 'theme-dark-midnight' ? 'selected' : ''; ?>>🌃 มืดมิดสกาย (Dark Midnight)</option>
+                    <option value="theme-dark-cyberpunk" <?php echo $current_theme == 'theme-dark-cyberpunk' ? 'selected' : ''; ?>>🔮 ไซเบอร์พังก์ (Cyberpunk Purple)</option>
+                </optgroup>
+            </select>
+
+            <div class="sync-badge" id="dbConnBadge">
+                <span class="live-pulse"></span>
+                <span id="dbConnStatusText">กำลังเชื่อมต่อ Supabase DB...</span>
+            </div>
+
+            <a href="page10.php" class="btn btn-primary" style="border:none; text-decoration:none;">
+                <i class="fa-solid fa-boxes-packing"></i> กลับหน้ารับเข้าคลัง
+            </a>
+
+            <button type="button" class="btn btn-danger" onclick="logoutSecuritySystem()" title="ออกจากระบบทันที">
+                <i class="fa-solid fa-right-from-bracket"></i> ล็อกหน้าจอ
+            </button>
+        </div>
+    </header>
+
+    <!-- Realtime Outbound KPI Metrics -->
+    <section class="metrics-grid">
+        <div class="metric-card">
+            <span class="title"><i class="fa-solid fa-boxes-stacked" style="color:var(--accent-blue);"></i> สินค้าพร้อมจ่ายคงเหลือ</span>
+            <span class="value" id="kpiAvailableTotal">0</span>
+        </div>
+        <div class="metric-card">
+            <span class="title"><i class="fa-solid fa-file-invoice" style="color:var(--accent-red);"></i> ใบจ่ายสินค้าวันนี้</span>
+            <span class="value" id="kpiTodayDocCount" style="color: var(--accent-red);">0</span>
+        </div>
+        <div class="metric-card">
+            <span class="title"><i class="fa-solid fa-circle-check" style="color:var(--accent-green);"></i> จำนวนชิ้นเบิกจ่ายวันนี้</span>
+            <span class="value" id="kpiTodayIssuedQty" style="color: var(--accent-green);">0</span>
+        </div>
+        <div class="metric-card">
+            <span class="title"><i class="fa-solid fa-clock-rotate-left" style="color:var(--accent-amber);"></i> ประวัติจ่ายออกรวมทั้งหมด</span>
+            <span class="value" id="kpiTotalHistoryQty" style="color: var(--accent-amber);">0</span>
+        </div>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <div class="tab-navigation">
+        <button class="tab-btn active" id="tabIssueBtn" onclick="switchOutboundTab('issue')">
+            <i class="fa-solid fa-cart-flatbed"></i> บันทึกจ่ายสินค้าออก
+        </button>
+        <button class="tab-btn" id="tabHistoryBtn" onclick="switchOutboundTab('history')">
+            <i class="fa-solid fa-clock-rotate-left"></i> ประวัติการจ่ายสินค้าออก (เรียลไทม์)
+        </button>
+    </div>
+
+    <!-- TAB 1: บันทึกเบิกจ่ายสินค้าออก -->
+    <div id="issueSection">
+        <div class="outbound-grid" style="display:grid; grid-template-columns: 420px 1fr; gap: 1.2rem; align-items: start;">
+            
+            <!-- Form Card -->
+            <section class="card">
+                <div style="font-weight:800; font-size:1.05rem; margin-bottom:0.9rem; display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid var(--border-color); padding-bottom:0.6rem;">
+                    <span><i class="fa-solid fa-circle-minus" style="color:var(--accent-red);"></i> สร้างรายการจ่ายสินค้าออก</span>
+                    <span id="issueDocNoBadge" class="issue-doc-badge">ISS-YYYYMMDD-XXXX</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="customerName"><i class="fa-solid fa-user-tag"></i> ชื่อผู้รับ / เบิก / ลูกค้า</label>
+                    <input type="text" id="customerName" class="form-control" style="font-weight:700;" placeholder="กรอกชื่อผู้รับสินค้าหรือบริษัทลูกค้า..." required>
+                </div>
+
+                <div class="form-group">
+                    <label for="issueReason"><i class="fa-solid fa-bullseye"></i> วัตถุประสงค์การจ่ายออก</label>
+                    <select id="issueReason" class="wms-select" style="font-weight:700;">
+                        <option value="ขายสินค้า (Sales)">ขายสินค้า (Sales)</option>
+                        <option value="ส่งเคลม/ซ่อม (Claim/Repair)">ส่งเคลม / ซ่อม (Claim/Repair)</option>
+                        <option value="โอนย้ายสาขา (Transfer)">โอนย้ายระหว่างสาขา (Transfer)</option>
+                        <option value="ตัวอย่าง/ยืมใช้งาน (Demo/Loan)">ตัวอย่าง / ยืมใช้งาน (Demo/Loan)</option>
+                        <option value="ตัดชำรุด (Defect/Scrap)">ตัดชำรุด / เสื่อมสภาพ (Defect/Scrap)</option>
+                    </select>
+                </div>
+
+                <div style="background: var(--bg-tertiary); border: 2px solid var(--accent-red); padding: 0.9rem; border-radius: 12px; margin-bottom: 0.9rem;">
+                    <label style="font-size:0.85rem; font-weight:800; display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <span><i class="fa-solid fa-barcode" style="color:var(--accent-red);"></i> หมายเลขซีเรียล (S/N)</span>
+                        <span id="liveClockDisplay" class="mono" style="font-size:0.75rem; color:var(--text-muted);">--:--:--</span>
+                    </label>
+                    <div style="display:flex; gap:0.5rem;">
+                        <input type="text" id="scanIssueSN" class="form-control mono" style="font-size:1.1rem; font-weight:800; padding:0.6rem 0.8rem; border-color:var(--accent-red);" placeholder="🎯 ยิงปืนสแกน S/N แล้วกด Enter..." autofocus autocomplete="off" onkeydown="handleScannerKeydown(event)">
+                        <button type="button" class="btn btn-danger" onclick="addItemToIssueList()"><i class="fa-solid fa-plus"></i></button>
+                    </div>
+                </div>
+
+                <!-- Cart Box -->
+                <div class="cart-box">
+                    <div style="font-weight: 800; font-size: 0.85rem; margin-bottom: 8px; display: flex; justify-content: space-between; align-items:center;">
+                        <span>รายการที่จะจ่ายออกในใบนี้</span>
+                        <span id="cartCountBadge" class="issue-doc-badge" style="font-size:0.75rem; padding:2px 8px;">0 รายการ</span>
+                    </div>
+                    <div id="cartListContainer" style="max-height: 200px; overflow-y: auto;">
+                        <div style="text-align:center; padding:15px; color:var(--text-muted); font-size:0.82rem;">ยังไม่มีรายการในใบจ่าย สแกน S/N หรือเลือกจากตาราง</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="issueNote"><i class="fa-solid fa-pen-to-square"></i> หมายเหตุเพิ่มเติม</label>
+                    <input type="text" id="issueNote" class="form-control" placeholder="ระบุเลข PO / แทรกกิ้ง / รายละเอียดเพิ่มเติม...">
+                </div>
+
+                <button type="button" class="btn btn-danger" style="width:100%; padding:0.75rem; font-size:0.95rem;" onclick="confirmAndProcessIssue()">
+                    <i class="fa-solid fa-print"></i> ยืนยันการจ่ายสินค้า & พิมพ์ใบจ่ายสินค้า (PDF)
+                </button>
+            </section>
+
+            <!-- Available Inventory Table -->
+            <section class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.9rem; border-bottom:2px solid var(--border-color); padding-bottom:0.6rem;">
+                    <span style="font-weight:800; font-size:1.05rem;">
+                        <i class="fa-solid fa-boxes-packing" style="color:var(--accent-blue);"></i> รายการสินค้าคลังมือสอง พร้อมจ่ายออก
+                    </span>
+                    <span id="totalAvailableBadge" class="sync-badge" style="color:var(--accent-blue); border-color:var(--border-color);"><i class="fa-solid fa-box-archive"></i> 0 รายการ</span>
+                </div>
+
+                <div style="display:flex; gap:0.6rem; margin-bottom:0.9rem;">
+                    <input type="text" id="searchInStock" class="form-control" placeholder="🔍 ค้นหา S/N, ชื่อรุ่น, พิกัดจัดเก็บ..." oninput="renderAvailableStockTable()">
+                </div>
+
+                <div class="table-container" style="max-height: 480px; overflow-y: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:40px; text-align:center;">#</th>
+                                <th>รหัส & ชื่อรุ่นสินค้า</th>
+                                <th>หมายเลขซีเรียล (S/N)</th>
+                                <th>พิกัดจัดเก็บ</th>
+                                <th style="width:140px; text-align:center;">เลือกจ่ายออก</th>
+                            </tr>
+                        </thead>
+                        <tbody id="availableStockTableBody">
+                            <tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดข้อมูลสินค้าพร้อมจ่าย...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- TAB 2: ประวัติการจ่ายสินค้าออก -->
+    <div id="historySection" style="display:none;">
+        <section class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.9rem; border-bottom:2px solid var(--border-color); padding-bottom:0.6rem;">
+                <span style="font-weight:800; font-size:1.05rem;">
+                    <i class="fa-solid fa-clock-rotate-left" style="color:var(--accent-red);"></i> ประวัติการจ่ายสินค้าออกจากคลังทั้งหมด (Real-time Filter)
+                </span>
+                <button type="button" class="btn btn-secondary" onclick="exportHistoryToExcel()">
+                    <i class="fa-solid fa-file-excel" style="color:#10b981;"></i> ส่งออก Excel ประวัติจ่ายออก
+                </button>
+            </div>
+
+            <!-- Enhanced Dynamic Real-time Filters -->
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:0.8rem; margin-bottom:1.1rem; background:var(--bg-tertiary); padding:1rem; border-radius:12px; border:1px solid var(--border-color);">
+                <div>
+                    <label style="font-size:0.78rem; font-weight:800; color:var(--text-muted); display:block; margin-bottom:4px;"><i class="fa-solid fa-calendar-day"></i> วันที่จ่ายออก (เริ่มต้น)</label>
+                    <input type="date" id="filterStartDate" class="form-control" onchange="renderHistoryTable()">
+                </div>
+                <div>
+                    <label style="font-size:0.78rem; font-weight:800; color:var(--text-muted); display:block; margin-bottom:4px;"><i class="fa-solid fa-calendar-check"></i> วันที่จ่ายออก (สิ้นสุด)</label>
+                    <input type="date" id="filterEndDate" class="form-control" onchange="renderHistoryTable()">
+                </div>
+                <div>
+                    <label style="font-size:0.78rem; font-weight:800; color:var(--text-muted); display:block; margin-bottom:4px;"><i class="fa-solid fa-filter"></i> เลือกวัตถุประสงค์</label>
+                    <select id="filterReasonSelect" class="wms-select" onchange="renderHistoryTable()">
+                        <option value="ALL">-- แสดงวัตถุประสงค์ทั้งหมด --</option>
+                        <option value="ขายสินค้า (Sales)">ขายสินค้า (Sales)</option>
+                        <option value="ส่งเคลม/ซ่อม (Claim/Repair)">ส่งเคลม/ซ่อม (Claim/Repair)</option>
+                        <option value="โอนย้ายสาขา (Transfer)">โอนย้ายสาขา (Transfer)</option>
+                        <option value="ตัวอย่าง/ยืมใช้งาน (Demo/Loan)">ตัวอย่าง/ยืมใช้งาน (Demo/Loan)</option>
+                        <option value="ตัดชำรุด (Defect/Scrap)">ตัดชำรุด (Defect/Scrap)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:0.78rem; font-weight:800; color:var(--text-muted); display:block; margin-bottom:4px;"><i class="fa-solid fa-magnifying-glass"></i> ค้นหาแบบรวดเร็ว</label>
+                    <input type="text" id="searchHistoryInput" class="form-control" placeholder="ค้นหา S/N, ผู้รับ, เลขใบจ่าย..." oninput="renderHistoryTable()">
+                </div>
+            </div>
+
+            <div class="table-container" style="max-height: 520px; overflow-y: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>เลขที่ใบจ่าย</th>
+                            <th>วันที่ / เวลา จ่ายออก</th>
+                            <th>ผู้รับ / เบิกสินค้า</th>
+                            <th>วัตถุประสงค์</th>
+                            <th style="text-align:center;">จำนวน</th>
+                            <th>รายการ S/N ทั้งหมดที่จ่ายออก</th>
+                            <th style="width:130px; text-align:center;">จัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody">
+                        <tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดประวัติ...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <!-- CREATOR & DEVELOPER CREDIT SECTION -->
+    <section class="card" style="margin-top: 1.5rem; background: linear-gradient(135deg, var(--card-bg) 0%, var(--bg-tertiary) 100%) !important; border: 2px solid var(--accent-red) !important;">
+        <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 1.2rem;">
+                <img id="displayCreatorAvatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80" alt="Creator Profile" style="width: 75px; height: 75px; border-radius: 50%; object-fit: cover; border: 3px solid var(--accent-red); box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                <div>
+                    <span class="sync-badge" style="background: #fef2f2; color: #dc2626; border-color: #fca5a5; margin-bottom: 4px;">
+                        <i class="fa-solid fa-code"></i> Lead System Architect & Developer
+                    </span>
+                    <h3 id="displayCreatorName" style="font-size: 1.15rem; font-weight: 800; color: var(--text-main);">นคร จันทร์ทป. (Nakorn Chanthapat)</h3>
+                    <p id="displayCreatorBio" style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">ผู้พัฒนาและออกแบบระบบบริหารจัดการคลังสินค้าอัจฉริยะ (Enterprise WMS Pro 2026 v7.0 Outbound Security Edition)</p>
+                </div>
+            </div>
+            <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                <span class="sync-badge" style="background: var(--card-bg);"><i class="fa-solid fa-shield-halved" style="color:var(--accent-red);"></i> Zero-Trust Outbound Engine</span>
+                <span class="sync-badge" style="background: var(--card-bg);"><i class="fa-solid fa-file-pdf" style="color:var(--accent-green);"></i> Auto PDF Pop-up Engine</span>
+                <span class="sync-badge" style="background: var(--card-bg);"><i class="fa-solid fa-cloud" style="color:var(--accent-blue);"></i> Supabase Realtime Sync</span>
+            </div>
+        </div>
+    </section>
+
+</div> <!-- END OF APP CONTAINER -->
+
+<script>
+    // =========================================================================
+    // --- MAXIMUM SECURITY GATEWAY & ZERO-TRUST AUTHENTICATION ENGINE ---
+    // =========================================================================
+    let systemPassword = localStorage.getItem('phemsin_system_password') || '1234';
+    let isAudioEnabled = true;
+    let isAuthenticated = false;
+    let activePrintRecord = null; // เก็บข้อมูลใบจ่ายที่เลือกพิมพ์ล่าสุด
+
+    document.addEventListener('DOMContentLoaded', () => {
+        if (sessionStorage.getItem('phemsin_authenticated') === 'true') {
+            unlockApplicationAccess();
+        } else {
+            lockApplicationAccess();
+            setTimeout(() => triggerMacBookTouchIDScan(false), 300);
+        }
+    });
+
+    function lockApplicationAccess() {
+        isAuthenticated = false;
+        document.getElementById('appContainer').style.display = 'none';
+        document.getElementById('securityModal').style.display = 'flex';
+        sessionStorage.removeItem('phemsin_authenticated');
+    }
+
+    function unlockApplicationAccess() {
+        isAuthenticated = true;
+        sessionStorage.setItem('phemsin_authenticated', 'true');
+        document.getElementById('securityModal').style.display = 'none';
+        document.getElementById('appContainer').style.display = 'block';
+
+        loadCreatorProfileToUI();
+        generateNewIssueDocNo();
+        loadOutboundDataFromSupabase();
+    }
+
+    function logoutSecuritySystem() {
+        lockApplicationAccess();
+        showToast('🔒 ล็อกหน้าจอและระบบความปลอดภัยแล้ว');
+    }
+
+    async function triggerMacBookTouchIDScan(isManualClick = false) {
+        if (!window.PublicKeyCredential) {
+            if (isManualClick) alert('❌ เบราว์เซอร์นี้ไม่รองรับ WebAuthn Biometrics');
+            return;
+        }
+
+        try {
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+
+            await navigator.credentials.get({
+                publicKey: {
+                    challenge: challenge,
+                    timeout: 60000,
+                    userVerification: "required"
+                }
+            });
+
+            showToast('🔓 ยืนยันตัวตนผ่าน Touch ID สำเร็จ!');
+            unlockApplicationAccess();
+        } catch (err) {
+            document.getElementById('secAuthError').style.display = 'block';
+            lockApplicationAccess();
+        }
+    }
+
+    function verifySecurityPassword(e) {
+        e.preventDefault();
+        const input = document.getElementById('securityPassInput').value;
+        if (input === systemPassword) {
+            document.getElementById('secAuthError').style.display = 'none';
+            document.getElementById('securityPassInput').value = '';
+            showToast('🔓 เข้าสู่ระบบเบิกจ่ายสำเร็จ');
+            unlockApplicationAccess();
+        } else {
+            document.getElementById('secAuthError').style.display = 'block';
+            document.getElementById('securityPassInput').value = '';
+            lockApplicationAccess();
+        }
+    }
+
+    function loadCreatorProfileToUI() {
+        const creatorName = localStorage.getItem('phemsin_creator_name') || 'นคร จันทร์ทป. (Nakorn Chanthapat)';
+        const creatorBio = localStorage.getItem('phemsin_creator_bio') || 'ผู้พัฒนาและออกแบบระบบบริหารจัดการคลังสินค้าอัจฉริยะ (Enterprise WMS Pro 2026 v7.0 Outbound Security Edition)';
+        const creatorAvatar = localStorage.getItem('phemsin_creator_avatar') || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80';
+
+        document.getElementById('displayCreatorName').textContent = creatorName;
+        document.getElementById('displayCreatorBio').textContent = creatorBio;
+        document.getElementById('displayCreatorAvatar').src = creatorAvatar;
+    }
+
+    // ==========================================
+    // --- SUPABASE CLOUD CONFIGURATION ---
+    // ==========================================
+    const SUPABASE_URL = 'https://eusuehaqgwkcgowsgyco.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_ww-mPdyom_i6S4XhfAFj9Q_vFBpTuaE';
+    const _supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: { persistSession: false }
+    });
+
+    let inventory = [];
+    let issueHistory = [];
+    let currentIssueCart = [];
+
+    function changeTheme(themeName) {
+        document.body.className = themeName;
+        const formData = new URLSearchParams();
+        formData.append('ajax_set_theme', '1');
+        formData.append('theme', themeName);
+        fetch(window.location.href, { method: 'POST', body: formData }).catch(e => {});
+    }
+
+    function showToast(msg, isError = false) {
+        const toast = document.getElementById('wmsToast');
+        document.getElementById('wmsToastMsg').textContent = msg;
+        if (isError) toast.classList.add('error-alert');
+        else toast.classList.remove('error-alert');
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    function toggleAudioFeedback() {
+        isAudioEnabled = !isAudioEnabled;
+        const btn = document.getElementById('soundToggleBtn');
+        btn.innerHTML = isAudioEnabled ? `<i class="fa-solid fa-volume-high" style="color:var(--accent-green);"></i> เสียงสแกน: เปิด` : `<i class="fa-solid fa-volume-xmark" style="color:var(--accent-red);"></i> เสียงสแกน: ปิด`;
+    }
+
+    setInterval(() => {
+        const clock = document.getElementById('liveClockDisplay');
+        if (clock) clock.textContent = new Date().toLocaleTimeString('th-TH');
+    }, 1000);
+
+    function switchOutboundTab(tab) {
+        document.getElementById('tabIssueBtn').classList.toggle('active', tab === 'issue');
+        document.getElementById('tabHistoryBtn').classList.toggle('active', tab === 'history');
+        document.getElementById('issueSection').style.display = (tab === 'issue') ? 'block' : 'none';
+        document.getElementById('historySection').style.display = (tab === 'history') ? 'block' : 'none';
+        if (tab === 'history') renderHistoryTable();
+    }
+
+    async function loadOutboundDataFromSupabase() {
+        if (!isAuthenticated) return;
+
+        const connText = document.getElementById('dbConnStatusText');
+        const connBadge = document.getElementById('dbConnBadge');
+
+        try {
+            connText.textContent = "กำลังซิงค์ Supabase Cloud DB...";
+            
+            // โหลดสินค้าในคลัง
+            const { data: invData, error: invErr } = await _supabase
+                .from('warehouse_items')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (invErr) throw invErr;
+            inventory = invData || [];
+
+            // โหลดประวัติเบิกจ่าย
+            const { data: histData, error: histErr } = await _supabase
+                .from('warehouse_outbound_history')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (!histErr && histData) {
+                issueHistory = histData;
+            } else {
+                issueHistory = JSON.parse(localStorage.getItem('phemsin_issue_history_v2')) || [];
+            }
+
+            connText.textContent = "เชื่อมต่อ Supabase DB เรียบร้อยแล้ว (Active)";
+            connBadge.style.borderColor = "var(--accent-green)";
+
+            renderAvailableStockTable();
+            renderHistoryTable();
+            updateMetrics();
+        } catch (err) {
+            console.error('Error loading Supabase data:', err);
+            connText.textContent = "เชื่อมต่อ DB ขัดข้อง (โหมดสำรอง Local)";
+            connBadge.style.borderColor = "var(--accent-red)";
+        }
+    }
+
+    function generateNewIssueDocNo() {
+        const today = new Date();
+        const dateStr = today.toISOString().slice(0,10).replace(/-/g,'');
+        const todayCount = issueHistory.filter(h => h.issue_no && h.issue_no.includes(dateStr)).length;
+        const seq = String(todayCount + 1).padStart(3, '0');
+        const docNo = `ISS-${dateStr}-${seq}`;
+        document.getElementById('issueDocNoBadge').textContent = docNo;
+        return docNo;
+    }
+
+    function renderAvailableStockTable() {
+        const tbody = document.getElementById('availableStockTableBody');
+        const query = document.getElementById('searchInStock').value.toLowerCase().trim();
+        tbody.innerHTML = '';
+
+        let filtered = inventory.filter(i => 
+            i.sn.toLowerCase().includes(query) || 
+            i.name.toLowerCase().includes(query) ||
+            (i.location && i.location.toLowerCase().includes(query))
+        );
+
+        document.getElementById('totalAvailableBadge').innerHTML = `<i class="fa-solid fa-box-archive"></i> ${filtered.length} รายการ`;
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);">ไม่พบสินค้าคงเหลือพร้อมจ่าย</td></tr>`;
+            return;
+        }
+
+        filtered.forEach((item, idx) => {
+            const isSelected = currentIssueCart.some(c => c.id === item.id);
+            const tr = document.createElement('tr');
+            if (isSelected) tr.style.opacity = '0.5';
+
+            tr.innerHTML = `
+                <td style="text-align:center; font-weight:800;" class="mono">${idx + 1}</td>
+                <td>
+                    <span style="font-size:0.75rem; font-weight:800; color:var(--accent-blue);" class="mono">[${item.category}]</span>
+                    <div style="font-weight:700;">${item.name}</div>
+                </td>
+                <td><code class="mono" style="font-weight:800; color:var(--text-main);">${item.sn}</code></td>
+                <td><span class="location-badge">${item.location === 'DOCK' ? '🚚 ลานโหลด (DOCK)' : item.location}</span></td>
+                <td style="text-align:center;">
+                    ${isSelected ? `<span style="color:var(--accent-green); font-size:0.88rem; font-weight:800;"><i class="fa-solid fa-circle-check"></i> เลือกแล้ว</span>` : 
+                    `<button class="btn btn-danger" style="padding:3px 10px; font-size:0.75rem;" onclick="selectStockToCart(${item.id})"><i class="fa-solid fa-plus"></i> เลือกจ่ายออก</button>`}
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function selectStockToCart(id) {
+        const item = inventory.find(i => i.id === id);
+        if (!item || currentIssueCart.some(c => c.id === id)) return;
+
+        currentIssueCart.push(item);
+        renderCartList();
+        renderAvailableStockTable();
+        playScanBeep();
+    }
+
+    function addItemToIssueList() {
+        const input = document.getElementById('scanIssueSN');
+        const snValue = input.value.trim();
+
+        if (!snValue) {
+            showToast('⚠️ กรุณากรอกหรือสแกนหมายเลข S/N', true);
+            return;
+        }
+
+        const foundItem = inventory.find(i => i.sn.toLowerCase() === snValue.toLowerCase());
+
+        if (!foundItem) {
+            playErrorBeep();
+            showToast(`❌ ไม่พบหมายเลข S/N: "${snValue}" ในคลังสินค้าคงเหลือ!`, true);
+            input.select();
+            return;
+        }
+
+        if (currentIssueCart.some(c => c.id === foundItem.id)) {
+            showToast(`⚠️ S/N: "${snValue}" ถูกเพิ่มในใบจ่ายออกนี้แล้ว`, true);
+            input.value = '';
+            return;
+        }
+
+        currentIssueCart.push(foundItem);
+        input.value = '';
+        renderCartList();
+        renderAvailableStockTable();
+        playScanBeep();
+    }
+
+    function handleScannerKeydown(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addItemToIssueList();
+        }
+    }
+
+    function removeCartItem(id) {
+        currentIssueCart = currentIssueCart.filter(c => c.id !== id);
+        renderCartList();
+        renderAvailableStockTable();
+    }
+
+    function renderCartList() {
+        const container = document.getElementById('cartListContainer');
+        document.getElementById('cartCountBadge').textContent = `${currentIssueCart.length} รายการ`;
+
+        if (currentIssueCart.length === 0) {
+            container.innerHTML = `<div style="text-align:center; padding:15px; color:var(--text-muted); font-size:0.82rem;">ยังไม่มีรายการในใบจ่าย สแกน S/N หรือเลือกจากตาราง</div>`;
+            return;
+        }
+
+        let html = '';
+        currentIssueCart.forEach((item, index) => {
+            html += `
+                <div class="cart-item-row">
+                    <div>
+                        <div style="font-weight:800; color:var(--accent-red); font-size:0.85rem;" class="mono">${index + 1}. S/N: ${item.sn}</div>
+                        <div style="font-size:0.8rem; font-weight:700;">${item.name}</div>
+                    </div>
+                    <button type="button" onclick="removeCartItem(${item.id})" style="background:none; border:none; color:var(--accent-red); cursor:pointer; font-size:1rem;"><i class="fa-solid fa-circle-xmark"></i></button>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    async function confirmAndProcessIssue() {
+        const customerName = document.getElementById('customerName').value.trim();
+        const reason = document.getElementById('issueReason').value;
+        const note = document.getElementById('issueNote').value.trim();
+        const issueNo = document.getElementById('issueDocNoBadge').textContent;
+
+        if (!customerName) {
+            showToast('⚠️ กรุณากรอกชื่อผู้รับ / เบิก / ลูกค้า', true);
+            document.getElementById('customerName').focus();
+            return;
+        }
+
+        if (currentIssueCart.length === 0) {
+            showToast('⚠️ กรุณาเลือกหรือสแกนสินค้าอย่างน้อย 1 รายการเพื่อจ่ายออก', true);
+            return;
+        }
+
+        if (confirm(`คุณต้องการยืนยันการจ่ายสินค้าออกจำนวน ${currentIssueCart.length} รายการ (เลขที่: ${issueNo}) ใช่หรือไม่?`)) {
+            const issuedIds = currentIssueCart.map(c => c.id);
+            const bangkokNow = new Date().toISOString();
+
+            const issueRecord = {
+                issue_no: issueNo,
+                customer_name: customerName,
+                reason: reason,
+                note: note,
+                total_items: currentIssueCart.length,
+                items_json: JSON.stringify(currentIssueCart.map(c => ({ sn: c.sn, name: c.name, category: c.category, location: c.location }))),
+                created_at: bangkokNow
+            };
+
+            // อัปเดตในสเตตท้องถิ่น
+            issueHistory.unshift(issueRecord);
+            inventory = inventory.filter(i => !issuedIds.includes(i.id));
+
+            // แสดงหน้าต่าง Pop-up Preview สำหรับสั่งพิมพ์ PDF
+            openPdfPreviewModal(issueRecord);
+
+            currentIssueCart = [];
+            document.getElementById('customerName').value = '';
+            document.getElementById('issueNote').value = '';
+            generateNewIssueDocNo();
+            renderCartList();
+            renderAvailableStockTable();
+            renderHistoryTable();
+            updateMetrics();
+
+            showToast('✅ บันทึกจ่ายสินค้าออกจากคลังสำเร็จ!');
+
+            // ซิงค์ลง Supabase DB
+            await _supabase.from('warehouse_outbound_history').insert([issueRecord]);
+            await _supabase.from('warehouse_items').delete().in('id', issuedIds);
+        }
+    }
+
+    // ======================================================
+    // --- PDF POPUP PREVIEW & PRINTING SYSTEM (NEW) ---
+    // ======================================================
+    function openPdfPreviewModal(record) {
+        activePrintRecord = record;
+        const container = document.getElementById('pdfModalContent');
+        let dateStr = new Date(record.created_at).toLocaleString('th-TH');
+        let items = typeof record.items_json === 'string' ? JSON.parse(record.items_json) : record.items_json;
+
+        let itemsHtml = items.map((item, idx) => `
+            <tr>
+                <td style="text-align:center; border:1px solid #cbd5e1; padding:8px; font-weight:bold;">${idx + 1}</td>
+                <td style="border:1px solid #cbd5e1; padding:8px;">${item.name} <span style="font-size:0.75rem; color:#64748b;">[${item.category || '-'}]</span></td>
+                <td style="border:1px solid #cbd5e1; padding:8px; font-family:'JetBrains Mono', monospace; font-weight:800; color:#0284c7;">${item.sn}</td>
+                <td style="text-align:center; border:1px solid #cbd5e1; padding:8px;">${item.location || '-'}</td>
+            </tr>
+        `).join('');
+
+        container.innerHTML = `
+            <div id="printableDocument" style="background:#fff; padding:20px; font-family:'Prompt', sans-serif;">
+                <div style="display:flex; justify-content:space-between; border-bottom:2px solid #ef4444; padding-bottom:12px; margin-bottom:15px;">
+                    <div>
+                        <h2 style="color:#ef4444; margin:0; font-size:1.4rem; font-weight:800;">เพิ่มสิน WMS Enterprise Pro</h2>
+                        <p style="margin:2px 0 0 0; color:#64748b; font-size:0.83rem;">ใบจ่ายสินค้าออกจากคลังสินค้า (Goods Issue Note)</p>
+                    </div>
+                    <div style="text-align:right;">
+                        <svg id="modalDocBarcode"></svg>
+                        <div style="font-family:'JetBrains Mono', monospace; font-weight:800; font-size:0.9rem; color:#0f172a;">${record.issue_no}</div>
+                    </div>
+                </div>
+
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; background:#f8fafc; padding:12px; border-radius:8px; margin-bottom:15px; font-size:0.88rem; border:1px solid #e2e8f0;">
+                    <div>
+                        <p style="margin:3px 0;"><strong>ผู้รับ / ลูกค้า:</strong> ${record.customer_name}</p>
+                        <p style="margin:3px 0;"><strong>วัตถุประสงค์:</strong> <span style="color:#ef4444; font-weight:bold;">${record.reason}</span></p>
+                    </div>
+                    <div>
+                        <p style="margin:3px 0;"><strong>วันที่-เวลา จ่ายออก:</strong> ${dateStr}</p>
+                        <p style="margin:3px 0;"><strong>หมายเหตุ:</strong> ${record.note || '-'}</p>
+                    </div>
+                </div>
+
+                <div style="font-weight:800; font-size:0.92rem; margin-bottom:8px; color:#0f172a; display:flex; justify-content:space-between;">
+                    <span>รายการซีเรียลสินค้าทั้งหมด (${record.total_items} ชิ้น)</span>
+                    <span style="color:#10b981;">✓ ตรวจสอบแล้วครบทุกชิ้น</span>
+                </div>
+
+                <table style="width:100%; border-collapse:collapse; font-size:0.85rem; margin-bottom:25px;">
+                    <thead>
+                        <tr style="background:#f1f5f9; color:#334155;">
+                            <th style="width:50px; border:1px solid #cbd5e1; padding:8px; text-align:center;">ลำดับ</th>
+                            <th style="border:1px solid #cbd5e1; padding:8px;">ชื่อรุ่น / รายการสินค้า</th>
+                            <th style="width:200px; border:1px solid #cbd5e1; padding:8px;">หมายเลขซีเรียล (S/N)</th>
+                            <th style="width:100px; border:1px solid #cbd5e1; padding:8px; text-align:center;">พิกัดเดิม</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${itemsHtml}
+                    </tbody>
+                </table>
+
+                <div style="display:flex; justify-content:space-between; margin-top:40px; text-align:center; font-size:0.83rem;">
+                    <div style="width:200px; border-top:1px dashed #94a3b8; padding-top:6px;">
+                        ลงชื่อ......................................................<br><strong>(ผู้จ่ายสินค้า / เจ้าหน้าที่คลัง)</strong>
+                    </div>
+                    <div style="width:200px; border-top:1px dashed #94a3b8; padding-top:6px;">
+                        ลงชื่อ......................................................<br><strong>(ผู้รับสินค้า / ผู้เบิก)</strong>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('pdfPreviewModal').style.display = 'flex';
+
+        // วาดบาร์โค้ด
+        setTimeout(() => {
+            JsBarcode("#modalDocBarcode", record.issue_no, {
+                format: "CODE128",
+                width: 1.5,
+                height: 35,
+                displayValue: false
+            });
+        }, 50);
+    }
+
+    function closePdfPreviewModal() {
+        document.getElementById('pdfPreviewModal').style.display = 'none';
+    }
+
+    function triggerPrintFromModal() {
+        if (!activePrintRecord) return;
+        printShippingNote(activePrintRecord);
+    }
+
+    function printShippingNote(record) {
+        let printWindow = window.open('', '_blank', 'width=900,height=900');
+        let dateStr = new Date(record.created_at).toLocaleString('th-TH');
+        let items = typeof record.items_json === 'string' ? JSON.parse(record.items_json) : record.items_json;
+
+        let html = `
+            <!DOCTYPE html>
+            <html lang="th">
+            <head>
+                <meta charset="UTF-8">
+                <title>ใบจ่ายสินค้าออก - ${record.issue_no}</title>
+                <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
+                <style>
+                    body { font-family: 'Prompt', sans-serif; color: #1e293b; margin: 30px; padding: 0; background: #fff; }
+                    .invoice-container { max-width: 800px; margin: 0 auto; border: 1px solid #e2e8f0; padding: 30px; border-radius: 12px; }
+                    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #ef4444; padding-bottom: 15px; margin-bottom: 20px; }
+                    .company-info h2 { margin: 0; color: #ef4444; font-size: 1.5rem; }
+                    .company-info p { margin: 4px 0 0 0; font-size: 0.85rem; color: #64748b; }
+                    .doc-info { text-align: right; }
+                    .doc-info h3 { margin: 0; color: #0f172a; font-size: 1.1rem; }
+                    .doc-info p { margin: 4px 0 0 0; font-size: 0.85rem; color: #475569; }
+                    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.9rem; }
+                    table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 0.88rem; }
+                    th, td { border: 1px solid #cbd5e1; padding: 10px 12px; text-align: left; }
+                    th { background-color: #f1f5f9; color: #334155; font-weight: 600; }
+                    .sign-section { display: flex; justify-content: space-between; margin-top: 40px; text-align: center; font-size: 0.88rem; }
+                    .sign-box { width: 240px; border-top: 1.5px dashed #94a3b8; padding-top: 8px; color: #475569; }
+                </style>
+            </head>
+            <body>
+                <div class="invoice-container">
+                    <div class="header">
+                        <div class="company-info">
+                            <h2>เพิ่มสิน WMS (Warehouse)</h2>
+                            <p>ระบบบริหารจัดการคลังสินค้ามือสอง Pro 2026 Enterprise</p>
+                        </div>
+                        <div class="doc-info">
+                            <h3>ใบจ่ายสินค้าออก (Goods Issue Note)</h3>
+                            <p><strong>เลขที่:</strong> ${record.issue_no}</p>
+                            <p><strong>วันที่/เวลา:</strong> ${dateStr}</p>
+                        </div>
+                    </div>
+                    <div class="meta-grid">
+                        <div>
+                            <p><strong>ชื่อผู้รับ / ลูกค้า:</strong> ${record.customer_name}</p>
+                            <p><strong>วัตถุประสงค์:</strong> ${record.reason}</p>
+                        </div>
+                        <div>
+                            <p><strong>หมายเหตุ:</strong> ${record.note || '-'}</p>
+                            <p><strong>จำนวนรวม:</strong> ${record.total_items} รายการ</p>
+                        </div>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:50px; text-align:center;">ลำดับ</th>
+                                <th>รายการสินค้า / รุ่น</th>
+                                <th style="width:180px;">หมายเลขซีเรียล (S/N)</th>
+                                <th style="width:120px; text-align:center;">พิกัดเดิม</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+
+        items.forEach((item, idx) => {
+            html += `
+                <tr>
+                    <td style="text-align:center;">${idx + 1}</td>
+                    <td>${item.name}</td>
+                    <td style="font-family: monospace; font-weight: bold; color: #0284c7;">${item.sn}</td>
+                    <td style="text-align:center;">${item.location || '-'}</td>
+                </tr>
+            `;
+        });
+
+        html += `
+                        </tbody>
+                    </table>
+                    <div class="sign-section">
+                        <div><br><br><div class="sign-box">ลงชื่อ......................................................<br><strong>(ผู้จ่ายสินค้า / เจ้าหน้าที่คลัง)</strong></div></div>
+                        <div><br><br><div class="sign-box">ลงชื่อ......................................................<br><strong>(ผู้รับสินค้า / ผู้เบิก)</strong></div></div>
+                    </div>
+                </div>
+                <script>window.onload = function() { window.print(); };<\/script>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.write(html);
+        printWindow.document.close();
+    }
+
+    // ======================================================
+    // --- REALTIME FILTERING HISTORY ENGINE (ENHANCED) ---
+    // ======================================================
+    function renderHistoryTable() {
+        const tbody = document.getElementById('historyTableBody');
+        const query = document.getElementById('searchHistoryInput').value.toLowerCase().trim();
+        const startDate = document.getElementById('filterStartDate').value;
+        const endDate = document.getElementById('filterEndDate').value;
+        const reasonFilter = document.getElementById('filterReasonSelect').value;
+
+        tbody.innerHTML = '';
+
+        let filtered = issueHistory.filter(h => {
+            const items = typeof h.items_json === 'string' ? JSON.parse(h.items_json || '[]') : (h.items_json || []);
+            
+            // กรองค้นหาคำค้นทั่วไป (Search)
+            const matchesQuery = (
+                h.issue_no.toLowerCase().includes(query) ||
+                h.customer_name.toLowerCase().includes(query) ||
+                (h.note && h.note.toLowerCase().includes(query)) ||
+                items.some(i => i.sn.toLowerCase().includes(query) || i.name.toLowerCase().includes(query))
+            );
+
+            // กรองตามวัตถุประสงค์ (Reason Filter)
+            const matchesReason = (reasonFilter === 'ALL' || h.reason === reasonFilter);
+
+            // กรองตามวันที่ (Date Range Filter)
+            let matchesDate = true;
+            if (h.created_at) {
+                const itemDate = h.created_at.slice(0, 10);
+                if (startDate && itemDate < startDate) matchesDate = false;
+                if (endDate && itemDate > endDate) matchesDate = false;
+            }
+
+            return matchesQuery && matchesReason && matchesDate;
+        });
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">ไม่พบประวัติการจ่ายสินค้าออกตามเงื่อนไขที่เลือก</td></tr>`;
+            return;
+        }
+
+        filtered.forEach(h => {
+            const items = typeof h.items_json === 'string' ? JSON.parse(h.items_json || '[]') : (h.items_json || []);
+            let snTags = items.map(i => `<code class="mono" style="background:var(--bg-tertiary); padding:2px 6px; border-radius:4px; font-size:0.75rem; border:1px solid var(--border-color); color:var(--text-main); font-weight:700;">${i.sn}</code>`).join(' ');
+            let dateStr = new Date(h.created_at).toLocaleString('th-TH');
+
+            let tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><span class="issue-doc-badge">${h.issue_no}</span></td>
+                <td style="font-size:0.78rem; color:var(--text-muted);">${dateStr}</td>
+                <td><strong style="color:var(--text-main);">${h.customer_name}</strong></td>
+                <td><span style="font-size:0.8rem; background:var(--bg-tertiary); padding:3px 10px; border-radius:10px; border:1px solid var(--border-color); font-weight:700;">${h.reason}</span></td>
+                <td style="text-align:center;"><strong style="color:var(--accent-red);">${h.total_items} ชิ้น</strong></td>
+                <td><div style="max-width:280px; display:flex; flex-wrap:wrap; gap:4px;">${snTags}</div></td>
+                <td style="text-align:center;">
+                    <button class="btn btn-secondary" style="padding:4px 10px; font-size:0.75rem;" onclick='reprintDoc("${h.issue_no}")'>
+                        <i class="fa-solid fa-file-pdf" style="color:#ef4444;"></i> ดู/พิมพ์ PDF
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function reprintDoc(issueNo) {
+        const record = issueHistory.find(h => h.issue_no === issueNo);
+        if (record) openPdfPreviewModal(record);
+    }
+
+    function updateMetrics() {
+        const todayStr = new Date().toISOString().slice(0,10);
+        const todayDocs = issueHistory.filter(h => h.created_at && h.created_at.startsWith(todayStr));
+        let todayQty = 0;
+        todayDocs.forEach(d => todayQty += (d.total_items || 0));
+
+        let totalHistQty = 0;
+        issueHistory.forEach(h => totalHistQty += (h.total_items || 0));
+
+        document.getElementById('kpiAvailableTotal').textContent = inventory.length;
+        document.getElementById('kpiTodayDocCount').textContent = todayDocs.length;
+        document.getElementById('kpiTodayIssuedQty').textContent = todayQty;
+        document.getElementById('kpiTotalHistoryQty').textContent = totalHistQty;
+    }
+
+    function exportHistoryToExcel() {
+        if (issueHistory.length === 0) {
+            showToast('⚠️ ไม่มีข้อมูลประวัติการจ่ายสินค้าสำหรับส่งออก', true);
+            return;
+        }
+
+        let excelData = [
+            ["รายงานประวัติการจ่ายสินค้าออกจากคลัง - เพิ่มสิน WMS Pro Enterprise"],
+            [`วันที่ส่งออกข้อมูล: ${new Date().toLocaleString('th-TH')}`],
+            [""],
+            ["เลขที่ใบจ่าย", "วันที่/เวลา จ่ายออก", "ผู้รับ/ลูกค้า", "วัตถุประสงค์", "หมายเหตุ", "หมายเลข S/N", "ชื่อรุ่นสินค้า"]
+        ];
+
+        issueHistory.forEach(h => {
+            let dateStr = new Date(h.created_at).toLocaleString('th-TH');
+            const items = typeof h.items_json === 'string' ? JSON.parse(h.items_json || '[]') : (h.items_json || []);
+            items.forEach(item => {
+                excelData.push([
+                    h.issue_no,
+                    dateStr,
+                    h.customer_name,
+                    h.reason,
+                    h.note || '-',
+                    item.sn,
+                    item.name
+                ]);
+            });
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(excelData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Issue History");
+        XLSX.writeFile(wb, "phemsin_outbound_history.xlsx");
+        showToast("📥 ส่งออกประวัติการจ่ายสินค้าเป็น Excel เรียบร้อยแล้ว");
+    }
+
+    function playScanBeep() {
+        if (!isAudioEnabled) return;
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(1200, ctx.currentTime);
+            gain.gain.setValueAtTime(0.3, ctx.currentTime);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.1);
+        } catch (e) {}
+    }
+
+    function playErrorBeep() {
+        if (!isAudioEnabled) return;
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const now = ctx.currentTime;
+            [0, 0.15].forEach(timeOffset => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(300, now + timeOffset);
+                gain.gain.setValueAtTime(0.4, now + timeOffset);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + timeOffset + 0.12);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(now + timeOffset);
+                osc.stop(now + timeOffset + 0.12);
+            });
+        } catch (e) {}
+    }
+</script>
+
+</body>
+</html>
