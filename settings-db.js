@@ -32,32 +32,10 @@ let menuDbMappingData = [
 ];
 
 /**
- * 🟢 ดึงตัวเชื่อมต่อ Supabase Client Instance อย่างปลอดภัย (No Hardcoded Credentials)
- */
-function getSupabaseClient() {
-    if (window._supabase) return window._supabase;
-    if (typeof _supabase !== 'undefined' && _supabase) return _supabase;
-    
-    // Dynamic initialization using injected environment variables
-    const envUrl = (window.ENV && window.ENV.SUPABASE_URL) || "";
-    const envKey = (window.ENV && window.ENV.SUPABASE_ANON_KEY) || "";
-
-    if (typeof supabase !== 'undefined' && supabase && typeof supabase.createClient === 'function' && envUrl && envKey) {
-        try {
-            window._supabase = supabase.createClient(envUrl, envKey);
-            return window._supabase;
-        } catch (e) {
-            // Safe Catch
-        }
-    }
-    return null;
-}
-
-/**
  * 🟢 บันทึกลำดับตำแหน่งแถว รายงาน DB Mapping และสถานะล็อก ลง Supabase DB 100%
  */
 async function saveAllWarehouseConfigsToDB() {
-    const client = getSupabaseClient();
+    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
     
     const aislePayload = {
         key: 'aisle_configs',
@@ -126,7 +104,7 @@ async function loadWarehouseConfigsFromDB(retryCount = 0) {
         let dbConfigs = {};
         let loadedSuccess = false;
 
-        const client = getSupabaseClient();
+        const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
 
         if (!client && retryCount < 5) {
             setTimeout(() => loadWarehouseConfigsFromDB(retryCount + 1), 300);
@@ -217,7 +195,7 @@ async function loadWarehouseConfigsFromDB(retryCount = 0) {
  * 🟢 ระบบ Realtime Listener Sync สลับลำดับแถวข้ามเครื่องอัตโนมัติ
  */
 function initWarehouseSettingsRealtime() {
-    const client = getSupabaseClient();
+    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
     if (!client) return;
 
     try {
