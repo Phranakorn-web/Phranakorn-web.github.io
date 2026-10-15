@@ -2,31 +2,6 @@
 // --- MODULE 10: MAIN UI ROUTING & EVENT LISTENERS ---
 // =========================================================================
 
-// Safe Escape HTML Helper Fallback (Secures against XSS vulnerabilities)
-if (typeof escapeHTML !== 'function') {
-    function escapeHTML(str) {
-        if (str === null || str === undefined) return '';
-        if (typeof str !== 'string') return String(str);
-        return str
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
-    }
-}
-
-// Secure Dynamic Supabase Instance Getter
-function getSupabaseClient() {
-    if (typeof _supabase !== 'undefined' && _supabase) {
-        return _supabase;
-    }
-    if (typeof window !== 'undefined' && window.ENV && window.ENV.SUPABASE_CLIENT) {
-        return window.ENV.SUPABASE_CLIENT;
-    }
-    return null;
-}
-
 let pendingDeleteMode = null;
 let pendingDeleteSn = null;
 let pendingDeleteId = null;
@@ -46,15 +21,14 @@ function renderSidebarMenu() {
     }
 
     const list = document.getElementById('sidebarMenuList');
-    if (!list) return;
     list.innerHTML = '';
     
     menuConfig.forEach((item, idx) => {
         const li = document.createElement('li');
         li.className = 'menu-item';
         li.innerHTML = `
-            <button class="${idx === 0 ? 'active' : ''}" onclick="switchView('${escapeHTML(item.id)}')">
-                <i class="fa-solid ${escapeHTML(item.icon)}"></i> ${escapeHTML(item.label)}
+            <button class="${idx === 0 ? 'active' : ''}" onclick="switchView('${item.id}')">
+                <i class="fa-solid ${item.icon}"></i> ${item.label}
             </button>
         `;
         list.appendChild(li);
@@ -103,13 +77,11 @@ let voiceSettings = { inboundVoice: false, deleteVoice: false };
 function toggleVoiceAudioAlert() {
     isVoiceAlertEnabled = !isVoiceAlertEnabled;
     const btn = document.getElementById('voiceToggleBtn');
-    if (btn) {
-        if (isVoiceAlertEnabled) {
-            btn.innerHTML = `<i class="fa-solid fa-volume-high" style="color:var(--success);"></i> AI Voice On`;
-            speakThaiText("เปิดระบบเสียงอ่านตอบรับเรียบร้อยค่ะ");
-        } else {
-            btn.innerHTML = `<i class="fa-solid fa-volume-xmark" style="color:var(--danger);"></i> AI Voice Off`;
-        }
+    if (isVoiceAlertEnabled) {
+        btn.innerHTML = `<i class="fa-solid fa-volume-high" style="color:var(--success);"></i> AI Voice On`;
+        speakThaiText("เปิดระบบเสียงอ่านตอบรับเรียบร้อยค่ะ");
+    } else {
+        btn.innerHTML = `<i class="fa-solid fa-volume-xmark" style="color:var(--danger);"></i> AI Voice Off`;
     }
 }
 
@@ -125,15 +97,25 @@ function speakThaiText(text) {
     } catch(e) {}
 }
 
+function escapeHTML(str) {
+    if (typeof str !== 'string') return str;
+    return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     initThemeSystem();
-    if (typeof initOfflineSyncEngine === 'function') initOfflineSyncEngine();
-    if (typeof initAuthSystem === 'function') await initAuthSystem();
-    if (typeof loadDataFromDatabase === 'function') await loadDataFromDatabase();
-    if (typeof loadWarehouseConfigsFromDB === 'function') await loadWarehouseConfigsFromDB();
-    if (typeof loadOutboundHistoryFromDB === 'function') await loadOutboundHistoryFromDB();
+    initOfflineSyncEngine();
+    await initAuthSystem();
+    await loadDataFromDatabase();
+    await loadWarehouseConfigsFromDB();
+    await loadOutboundHistoryFromDB();
     if (currentUser && currentUser.role === 'admin') {
-        if (typeof loadPendingApprovalsFromDB === 'function') await loadPendingApprovalsFromDB();
+        await loadPendingApprovalsFromDB();
     }
     populateAisleDropdowns();
     onInboundAisleOrBayChange();
@@ -147,41 +129,35 @@ async function executeSwitchView(viewId) {
     document.querySelectorAll('.menu-item button').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
 
-    const activeBtn = Array.from(document.querySelectorAll('.menu-item button')).find(b => {
-        const onclickAttr = b.getAttribute('onclick');
-        return onclickAttr && onclickAttr.includes(viewId);
-    });
+    const activeBtn = Array.from(document.querySelectorAll('.menu-item button')).find(b => b.getAttribute('onclick').includes(viewId));
     if(activeBtn) activeBtn.classList.add('active');
 
     const targetSec = document.getElementById(viewId);
     if(targetSec) targetSec.classList.add('active');
 
     if(viewId === 'view-locations') {
-        if (typeof renderDrillDownAisleBar === 'function') renderDrillDownAisleBar();
-        if (typeof renderDrillDownBaysGrid === 'function') renderDrillDownBaysGrid();
-        if (typeof renderDrillDownSlotsGrid === 'function') renderDrillDownSlotsGrid();
+        renderDrillDownAisleBar();
+        renderDrillDownBaysGrid();
+        renderDrillDownSlotsGrid();
     } else if(viewId === 'view-approvals') {
-        if (typeof loadPendingApprovalsFromDB === 'function') loadPendingApprovalsFromDB();
+        loadPendingApprovalsFromDB();
     } else if(viewId === 'view-activities') {
-        if (typeof loadUserActivityLogsFromDB === 'function') loadUserActivityLogsFromDB();
+        loadUserActivityLogsFromDB();
     } else if(viewId === 'view-settings') {
-        if (typeof renderAisleSettingsTable === 'function') renderAisleSettingsTable();
-        if (typeof renderUserManagementTable === 'function') renderUserManagementTable();
-        if (typeof renderMenuDatabaseMappingTable === 'function') renderMenuDatabaseMappingTable();
+        renderAisleSettingsTable();
+        renderUserManagementTable();
+        renderMenuDatabaseMappingTable();
     }
 }
 
 function showToast(msg, isError = false) {
     const toast = document.getElementById('toastAlert');
-    const msgElem = document.getElementById('toastMessage');
-    if (msgElem) msgElem.textContent = msg;
-    if (toast) {
-        if(isError) toast.classList.add('error');
-        else toast.classList.remove('error');
-        
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 3500);
-    }
+    document.getElementById('toastMessage').textContent = msg;
+    if(isError) toast.classList.add('error');
+    else toast.classList.remove('error');
+    
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3500);
 }
 
 function initThemeSystem() {
@@ -220,14 +196,12 @@ function populateAisleDropdowns() {
     const inboundSelect = document.getElementById('inboundAisleSelect');
     const relocateSelect = document.getElementById('relocateAisleSelect');
 
-    if (typeof masterAisles === 'undefined' || !Array.isArray(masterAisles)) return;
-
     const optionsHtml = masterAisles.map(a => {
         let label = `แถว ${a}`;
         if (a === 'DOCK') label = '🚚 ลาน DOCK';
         else if (a === 'OFFICE') label = '🏢 ฝากเก็บในออฟฟิศ';
         else if (a === 'PENDING') label = '⏳ รอรับเข้าจริง';
-        return `<option value="${escapeHTML(a)}">${escapeHTML(label)}</option>`;
+        return `<option value="${escapeHTML(a)}">${label}</option>`;
     }).join('');
 
     if (filterSelect) filterSelect.innerHTML = `<option value="ALL">📍 แสดงทุกแถว (All)</option>` + optionsHtml;
@@ -243,16 +217,14 @@ function onInboundAisleOrBayChange() {
     const baySelect = document.getElementById('inboundBaySelect');
     
     if (aisle === 'DOCK' || aisle === 'OFFICE' || aisle === 'PENDING') {
-        if (baySelect) baySelect.innerHTML = `<option value="01">${escapeHTML(aisle)} Area</option>`;
-        const shelfElem = document.getElementById('inboundShelfSelect');
-        const slotElem = document.getElementById('inboundSlotSelect');
-        if (shelfElem) shelfElem.innerHTML = `<option value="1">1</option>`;
-        if (slotElem) slotElem.innerHTML = `<option value="1">1</option>`;
+        if (baySelect) baySelect.innerHTML = `<option value="01">${aisle} Area</option>`;
+        document.getElementById('inboundShelfSelect').innerHTML = `<option value="1">1</option>`;
+        document.getElementById('inboundSlotSelect').innerHTML = `<option value="1">1</option>`;
         updateInboundLocationPreview();
         return;
     }
 
-    const cfg = (typeof aisleConfigs !== 'undefined' && aisleConfigs[aisle]) ? aisleConfigs[aisle] : { bays: 10, shelves: 1, slots: 10 };
+    const cfg = aisleConfigs[aisle] || { bays: 10, shelves: 1, slots: 10 };
     let bayOptions = '';
     for (let b = 1; b <= cfg.bays; b++) {
         const bStr = String(b).padStart(2, '0');
@@ -262,16 +234,14 @@ function onInboundAisleOrBayChange() {
 
     let shelfOptions = '';
     for (let s = 1; s <= cfg.shelves; s++) shelfOptions += `<option value="${s}">ชั้น ${s}</option>`;
-    const shelfElem = document.getElementById('inboundShelfSelect');
-    if (shelfElem) shelfElem.innerHTML = shelfOptions;
+    document.getElementById('inboundShelfSelect').innerHTML = shelfOptions;
 
     let slotOptions = '';
     for (let sl = 1; sl <= cfg.slots; sl++) {
         const slStr = String(sl).padStart(2, '0');
         slotOptions += `<option value="${slStr}">ช่อง ${slStr}</option>`;
     }
-    const slotElem = document.getElementById('inboundSlotSelect');
-    if (slotElem) slotElem.innerHTML = slotOptions;
+    document.getElementById('inboundSlotSelect').innerHTML = slotOptions;
 
     autoSelectAvailableSlot();
 }
@@ -286,19 +256,15 @@ function autoSelectAvailableSlot() {
         return;
     }
 
-    const bayElem = document.getElementById('inboundBaySelect');
-    if (!bayElem) return;
-    const bay = bayElem.value;
-    const cfg = (typeof aisleConfigs !== 'undefined' && aisleConfigs[aisle]) ? aisleConfigs[aisle] : { bays: 10, shelves: 1, slots: 10 };
+    const bay = document.getElementById('inboundBaySelect').value;
+    const cfg = aisleConfigs[aisle] || { bays: 10, shelves: 1, slots: 10 };
 
     for (let s = 1; s <= cfg.shelves; s++) {
         for (let sl = 1; sl <= cfg.slots; sl++) {
             const locCode = `${aisle}-${bay}-${s}-${String(sl).padStart(2, '0')}`;
-            if (typeof occupiedLocationsSet !== 'undefined' && !occupiedLocationsSet.has(locCode)) {
-                const shelfSelect = document.getElementById('inboundShelfSelect');
-                const slotSelect = document.getElementById('inboundSlotSelect');
-                if (shelfSelect) shelfSelect.value = s;
-                if (slotSelect) slotSelect.value = String(sl).padStart(2, '0');
+            if (!occupiedLocationsSet.has(locCode)) {
+                document.getElementById('inboundShelfSelect').value = s;
+                document.getElementById('inboundSlotSelect').value = String(sl).padStart(2, '0');
                 updateInboundLocationPreview();
                 return;
             }
@@ -308,7 +274,7 @@ function autoSelectAvailableSlot() {
 }
 
 function autoSelectNextAvailableSlotAfterInbound() {
-    if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
+    rebuildOccupiedSet();
     const inboundAisleElem = document.getElementById('inboundAisleSelect');
     if (!inboundAisleElem) return;
 
@@ -318,15 +284,11 @@ function autoSelectNextAvailableSlotAfterInbound() {
         return;
     }
 
-    const bayElem = document.getElementById('inboundBaySelect');
-    const shelfElem = document.getElementById('inboundShelfSelect');
-    const slotElem = document.getElementById('inboundSlotSelect');
+    const currentBay = document.getElementById('inboundBaySelect').value;
+    const currentShelf = parseInt(document.getElementById('inboundShelfSelect').value) || 1;
+    const currentSlot = parseInt(document.getElementById('inboundSlotSelect').value) || 1;
 
-    const currentBay = bayElem ? bayElem.value : '01';
-    const currentShelf = shelfElem ? (parseInt(shelfElem.value) || 1) : 1;
-    const currentSlot = slotElem ? (parseInt(slotElem.value) || 1) : 1;
-
-    const cfg = (typeof aisleConfigs !== 'undefined' && aisleConfigs[aisle]) ? aisleConfigs[aisle] : { bays: 10, shelves: 1, slots: 10 };
+    const cfg = aisleConfigs[aisle] || { bays: 10, shelves: 1, slots: 10 };
 
     let foundNext = false;
     let startSlot = currentSlot + 1;
@@ -335,9 +297,9 @@ function autoSelectNextAvailableSlotAfterInbound() {
         for (let sl = startSlot; sl <= cfg.slots; sl++) {
             const slStr = String(sl).padStart(2, '0');
             const testLoc = `${aisle}-${currentBay}-${s}-${slStr}`;
-            if (typeof occupiedLocationsSet !== 'undefined' && !occupiedLocationsSet.has(testLoc)) {
-                if (shelfElem) shelfElem.value = s;
-                if (slotElem) slotElem.value = slStr;
+            if (!occupiedLocationsSet.has(testLoc)) {
+                document.getElementById('inboundShelfSelect').value = s;
+                document.getElementById('inboundSlotSelect').value = slStr;
                 foundNext = true;
                 break;
             }
@@ -355,23 +317,18 @@ function updateInboundLocationPreview() {
     if (!inboundAisleElem) return;
 
     const aisle = inboundAisleElem.value;
-    const previewElem = document.getElementById('inboundLocationPreview');
     if (aisle === 'DOCK' || aisle === 'OFFICE' || aisle === 'PENDING') {
-        if (previewElem) previewElem.textContent = aisle;
+        document.getElementById('inboundLocationPreview').textContent = aisle;
         return;
     }
-    const bayElem = document.getElementById('inboundBaySelect');
-    const shelfElem = document.getElementById('inboundShelfSelect');
-    const slotElem = document.getElementById('inboundSlotSelect');
-
-    const bay = bayElem ? bayElem.value : '01';
-    const shelf = shelfElem ? shelfElem.value : '1';
-    const slot = slotElem ? slotElem.value : '01';
+    const bay = document.getElementById('inboundBaySelect').value;
+    const shelf = document.getElementById('inboundShelfSelect').value;
+    const slot = document.getElementById('inboundSlotSelect').value;
 
     const locCode = `${aisle}-${bay}-${shelf}-${slot}`;
-    if (previewElem) previewElem.textContent = locCode;
+    document.getElementById('inboundLocationPreview').textContent = locCode;
 
-    const bayCount = (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) ? globalInventoryData.filter(i => (i.location || '').toUpperCase().startsWith(`${aisle}-${bay}-`)).length : 0;
+    const bayCount = globalInventoryData.filter(i => (i.location || '').toUpperCase().startsWith(`${aisle}-${bay}-`)).length;
     const badge = document.getElementById('bayInboundCountBadge');
     if (badge) badge.textContent = `รับแล้วในล็อกนี้: ${bayCount} เครื่อง`;
 }
@@ -384,57 +341,45 @@ function formatLocationCode(loc) {
 function generateAutoSN() {
     const rand = Math.floor(100000 + Math.random() * 900000);
     const sn = `SN-${rand}`;
-    const snInput = document.getElementById('inboundSn');
-    if (snInput) snInput.value = sn;
+    document.getElementById('inboundSn').value = sn;
     showToast(`🪄 สุ่ม S/N: ${sn}`);
 }
 
 function onFilterAisleChange() {
-    const aisleFilterElem = document.getElementById('filterAisleSelect');
+    const aisleFilter = document.getElementById('filterAisleSelect').value;
     const baySelect = document.getElementById('filterBaySelect');
-    if (!aisleFilterElem || !baySelect) return;
-    
-    const aisleFilter = aisleFilterElem.value;
     
     if (aisleFilter === 'ALL' || aisleFilter === 'DOCK' || aisleFilter === 'OFFICE' || aisleFilter === 'PENDING') {
         baySelect.innerHTML = `<option value="ALL">📦 ทุกล็อกในแถว</option>`;
     } else {
-        const cfg = (typeof aisleConfigs !== 'undefined' && aisleConfigs[aisleFilter]) ? aisleConfigs[aisleFilter] : { bays: 10 };
-        let opts = `<option value="ALL">📦 ทุกล็อกในแถว (${escapeHTML(aisleFilter)})</option>`;
+        const cfg = aisleConfigs[aisleFilter] || { bays: 10 };
+        let opts = `<option value="ALL">📦 ทุกล็อกในแถว (${aisleFilter})</option>`;
         for (let b = 1; b <= cfg.bays; b++) {
             const bStr = String(b).padStart(2, '0');
             opts += `<option value="${bStr}">ล็อก ${bStr}</option>`;
         }
         baySelect.innerHTML = opts;
     }
-    if (typeof filterInventoryData === 'function') filterInventoryData();
+    filterInventoryData();
 }
 
 // --- MODALS ENGINE & EVENT HANDLERS ---
 function openChangePasswordModal() {
-    const oldP = document.getElementById('oldPasswordInput');
-    const newP = document.getElementById('newPasswordInput');
-    const confP = document.getElementById('confirmNewPasswordInput');
-    const modal = document.getElementById('changePasswordModal');
-    
-    if (oldP) oldP.value = '';
-    if (newP) newP.value = '';
-    if (confP) confP.value = '';
-    if (modal) modal.style.display = 'flex';
+    document.getElementById('oldPasswordInput').value = '';
+    document.getElementById('newPasswordInput').value = '';
+    document.getElementById('confirmNewPasswordInput').value = '';
+    document.getElementById('changePasswordModal').style.display = 'flex';
 }
-
 function closeChangePasswordModal() {
-    const modal = document.getElementById('changePasswordModal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('changePasswordModal').style.display = 'none';
 }
-
 async function submitChangePassword(e) {
     e.preventDefault();
     const oldP = document.getElementById('oldPasswordInput').value.trim();
     const newP = document.getElementById('newPasswordInput').value.trim();
     const confP = document.getElementById('confirmNewPasswordInput').value.trim();
 
-    if (currentUser && currentUser.password && oldP !== currentUser.password) {
+    if (currentUser.password && oldP !== currentUser.password) {
         alert("⚠️ รหัสผ่านเดิมไม่ถูกต้อง");
         return;
     }
@@ -443,48 +388,37 @@ async function submitChangePassword(e) {
         return;
     }
 
-    if (currentUser) currentUser.password = newP;
-    if (typeof systemUsers !== 'undefined' && Array.isArray(systemUsers)) {
-        const targetInUsers = systemUsers.find(u => u.username === currentUser.username);
-        if (targetInUsers) targetInUsers.password = newP;
-        localStorage.setItem('WMS_USERS', JSON.stringify(systemUsers));
-    }
+    currentUser.password = newP;
+    const targetInUsers = systemUsers.find(u => u.username === currentUser.username);
+    if (targetInUsers) targetInUsers.password = newP;
 
     localStorage.setItem('WMS_ACTIVE_USER', JSON.stringify(currentUser));
+    localStorage.setItem('WMS_USERS', JSON.stringify(systemUsers));
 
     if (navigator.onLine) {
         try {
-            const client = getSupabaseClient();
-            if (client) {
-                await client.from('profiles').update({ password: newP }).eq('username', currentUser.username);
-            }
+            await _supabase.from('profiles').update({ password: newP }).eq('username', currentUser.username);
         } catch (err) {}
     }
 
     closeChangePasswordModal();
     playSuccessSound();
     showToast("🔑 เปลี่ยนรหัสผ่านเรียบร้อยแล้ว");
-    if (typeof logUserActivity === 'function') {
-        await logUserActivity('AUTH', `เปลี่ยนรหัสผ่านส่วนตัวสำเร็จ`);
-    }
+    await logUserActivity('AUTH', `เปลี่ยนรหัสผ่านส่วนตัวสำเร็จ`);
 }
 
 function openCreateUserModal() {
-    const fields = ['userFormId', 'userFormUsername', 'userFormFullName', 'userFormDepartment', 'userFormPassword'];
-    fields.forEach(f => {
-        const elem = document.getElementById(f);
-        if (elem) elem.value = '';
-    });
-    const roleElem = document.getElementById('userFormRole');
-    if (roleElem) roleElem.value = 'user';
-    const titleElem = document.getElementById('userModalTitle');
-    if (titleElem) titleElem.textContent = 'เพิ่มผู้ใช้งานใหม่';
-    const modal = document.getElementById('createUserModal');
-    if (modal) modal.style.display = 'flex';
+    document.getElementById('userFormId').value = '';
+    document.getElementById('userFormUsername').value = '';
+    document.getElementById('userFormFullName').value = '';
+    document.getElementById('userFormDepartment').value = '';
+    document.getElementById('userFormPassword').value = '';
+    document.getElementById('userFormRole').value = 'user';
+    document.getElementById('userModalTitle').textContent = 'เพิ่มผู้ใช้งานใหม่';
+    document.getElementById('createUserModal').style.display = 'flex';
 }
 
 function openEditUserModal(id) {
-    if (typeof systemUsers === 'undefined' || !Array.isArray(systemUsers)) return;
     const target = systemUsers.find(u => u.id === id);
     if (!target) return;
 
@@ -499,8 +433,7 @@ function openEditUserModal(id) {
 }
 
 function closeCreateUserModal() {
-    const modal = document.getElementById('createUserModal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('createUserModal').style.display = 'none';
 }
 
 async function submitUserForm(e) {
@@ -513,100 +446,70 @@ async function submitUserForm(e) {
     const role = document.getElementById('userFormRole').value;
 
     const payload = { username, full_name: name, department, password, role };
-    const client = getSupabaseClient();
 
     if (idVal) {
-        if (typeof systemUsers !== 'undefined' && Array.isArray(systemUsers)) {
-            const targetIndex = systemUsers.findIndex(u => String(u.id) === String(idVal));
-            if (targetIndex !== -1) {
-                systemUsers[targetIndex] = { id: systemUsers[targetIndex].id, ...payload, name };
-            }
+        const targetIndex = systemUsers.findIndex(u => String(u.id) === String(idVal));
+        if (targetIndex !== -1) {
+            systemUsers[targetIndex] = { id: systemUsers[targetIndex].id, ...payload, name };
         }
-        if (navigator.onLine && client) {
-            try {
-                await client.from('profiles').update(payload).eq('id', idVal);
-            } catch (err) {}
+        if (navigator.onLine) {
+            await _supabase.from('profiles').update(payload).eq('id', idVal);
         }
         showToast("✅ แก้ไขข้อมูลผู้ใช้เรียบร้อย");
     } else {
         const newId = Date.now();
-        if (typeof systemUsers !== 'undefined' && Array.isArray(systemUsers)) {
-            systemUsers.push({ id: newId, name, ...payload });
-        }
-        if (navigator.onLine && client) {
-            try {
-                await client.from('profiles').insert([payload]);
-            } catch (err) {}
+        systemUsers.push({ id: newId, name, ...payload });
+        if (navigator.onLine) {
+            await _supabase.from('profiles').insert([payload]);
         }
         showToast("🎉 เพิ่มผู้ใช้งานใหม่เรียบร้อย");
     }
 
-    if (typeof systemUsers !== 'undefined') {
-        localStorage.setItem('WMS_USERS', JSON.stringify(systemUsers));
-    }
+    localStorage.setItem('WMS_USERS', JSON.stringify(systemUsers));
     closeCreateUserModal();
-    if (typeof renderUserManagementTable === 'function') renderUserManagementTable();
-    if (typeof populateLogUserDropdown === 'function') populateLogUserDropdown();
+    renderUserManagementTable();
+    populateLogUserDropdown();
 }
 
 async function deleteUserAccount(id) {
     if (confirm("คุณแน่ใจหรือไม่ว่าต้องการลบบัญชีผู้ใช้นี้?")) {
-        if (typeof systemUsers !== 'undefined' && Array.isArray(systemUsers)) {
-            systemUsers = systemUsers.filter(u => u.id !== id);
-            localStorage.setItem('WMS_USERS', JSON.stringify(systemUsers));
-        }
+        systemUsers = systemUsers.filter(u => u.id !== id);
+        localStorage.setItem('WMS_USERS', JSON.stringify(systemUsers));
 
         if (navigator.onLine) {
-            try {
-                const client = getSupabaseClient();
-                if (client) {
-                    await client.from('profiles').delete().eq('id', id);
-                }
-            } catch (err) {}
+            await _supabase.from('profiles').delete().eq('id', id);
         }
         showToast("🗑️ ลบบัญชีผู้ใช้งานแล้ว");
-        if (typeof renderUserManagementTable === 'function') renderUserManagementTable();
-        if (typeof populateLogUserDropdown === 'function') populateLogUserDropdown();
+        renderUserManagementTable();
+        populateLogUserDropdown();
     }
 }
 
 async function inspectUserLogs(username) {
-    if (typeof systemUsers === 'undefined' || !Array.isArray(systemUsers)) return;
     currentInspectedUser = systemUsers.find(u => u.username === username);
     if (!currentInspectedUser) return;
 
-    const userElem = document.getElementById('auditTargetUsername');
-    const nameElem = document.getElementById('auditTargetFullName');
-    const deptElem = document.getElementById('auditTargetDept');
-    const roleElem = document.getElementById('auditTargetRole');
+    document.getElementById('auditTargetUsername').textContent = currentInspectedUser.username;
+    document.getElementById('auditTargetFullName').textContent = currentInspectedUser.name;
+    document.getElementById('auditTargetDept').textContent = currentInspectedUser.department || '-';
+    document.getElementById('auditTargetRole').textContent = currentInspectedUser.role;
 
-    if (userElem) userElem.textContent = currentInspectedUser.username;
-    if (nameElem) nameElem.textContent = currentInspectedUser.name;
-    if (deptElem) deptElem.textContent = currentInspectedUser.department || '-';
-    if (roleElem) roleElem.textContent = currentInspectedUser.role;
-
-    const modal = document.getElementById('userHistoryAuditModal');
-    if (modal) modal.style.display = 'flex';
+    document.getElementById('userHistoryAuditModal').style.display = 'flex';
     await refreshSingleUserLogs();
 }
 
 function closeUserHistoryAuditModal() {
-    const modal = document.getElementById('userHistoryAuditModal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('userHistoryAuditModal').style.display = 'none';
 }
 
 async function refreshSingleUserLogs() {
     if (!currentInspectedUser || !navigator.onLine) return;
 
     const tbody = document.getElementById('individualAuditLogsTableBody');
-    if (!tbody) return;
     tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</td></tr>`;
 
     try {
-        const client = getSupabaseClient();
-        if (!client) return;
-
-        const { data, error } = await client
+        const { data, error } = await _supabase
             .from('user_activities')
             .select('*')
             .eq('username', currentInspectedUser.username)
@@ -625,13 +528,10 @@ async function refreshSingleUserLogs() {
 }
 
 function filterIndividualAuditLogs() {
-    const searchInput = document.getElementById('auditModalSearchInput');
-    const typeFilter = document.getElementById('auditModalTypeFilter');
+    const search = document.getElementById('auditModalSearchInput').value.trim().toLowerCase();
+    const type = document.getElementById('auditModalTypeFilter').value;
 
-    const search = searchInput ? searchInput.value.trim().toLowerCase() : '';
-    const type = typeFilter ? typeFilter.value : 'ALL';
-
-    const filtered = (currentInspectedUserLogs || []).filter(log => {
+    const filtered = currentInspectedUserLogs.filter(log => {
         const matchText = !search || 
             (log.description && log.description.toLowerCase().includes(search)) ||
             (log.target_sn && log.target_sn.toLowerCase().includes(search));
@@ -640,8 +540,6 @@ function filterIndividualAuditLogs() {
     });
 
     const tbody = document.getElementById('individualAuditLogsTableBody');
-    if (!tbody) return;
-
     if (filtered.length === 0) {
         tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);">ไม่พบประวัติกิจกรรมตรงเงื่อนไข</td></tr>`;
         return;
@@ -652,7 +550,7 @@ function filterIndividualAuditLogs() {
         html += `
             <tr>
                 <td style="text-align:center;" class="mono">${idx + 1}</td>
-                <td style="font-size:0.78rem; color:var(--text-muted);">${log.created_at ? escapeHTML(new Date(log.created_at).toLocaleString('th-TH')) : '-'}</td>
+                <td style="font-size:0.78rem; color:var(--text-muted);">${new Date(log.created_at).toLocaleString('th-TH')}</td>
                 <td><span class="badge-action nav">${escapeHTML(log.action_type)}</span></td>
                 <td>${escapeHTML(log.description || '-')}</td>
                 <td><code class="mono font-bold">${escapeHTML(log.target_sn || '-')}</code></td>
@@ -663,11 +561,10 @@ function filterIndividualAuditLogs() {
 }
 
 function openEditItemModal(id, sn) {
-    if (typeof globalInventoryData === 'undefined' || !Array.isArray(globalInventoryData)) return;
     const item = globalInventoryData.find(i => String(i.id) === String(id) || i.sn === sn);
     if (!item) return;
 
-    if (typeof guardPendingSn === 'function' && guardPendingSn(item.sn)) return;
+    if (guardPendingSn(item.sn)) return;
 
     document.getElementById('editItemId').value = item.id || '';
     document.getElementById('editItemSn').value = item.sn;
@@ -676,13 +573,11 @@ function openEditItemModal(id, sn) {
     document.getElementById('editItemMeter').value = item.meter || 0;
     document.getElementById('editItemLocation').value = item.location || 'DOCK';
 
-    const modal = document.getElementById('editItemModal');
-    if (modal) modal.style.display = 'flex';
+    document.getElementById('editItemModal').style.display = 'flex';
 }
 
 function closeEditItemModal() {
-    const modal = document.getElementById('editItemModal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('editItemModal').style.display = 'none';
 }
 
 async function submitEditItemForm(e) {
@@ -693,76 +588,60 @@ async function submitEditItemForm(e) {
     const name = document.getElementById('editItemName').value.trim();
     const meterVal = parseInt(document.getElementById('editItemMeter').value) || 0;
 
-    if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-        const item = globalInventoryData.find(i => String(i.id) === String(id) || i.sn === sn);
-        if (item) {
-            item.category = category;
-            item.name = name;
-            item.meter = meterVal;
-        }
+    const item = globalInventoryData.find(i => String(i.id) === String(id) || i.sn === sn);
+    if (item) {
+        item.category = category;
+        item.name = name;
+        item.meter = meterVal;
     }
 
     if (navigator.onLine) {
         try {
-            const client = getSupabaseClient();
-            if (client) {
-                await client.from('warehouse_items').update({
-                    category: category,
-                    name: name,
-                    meter: meterVal
-                }).eq('sn', sn);
-            }
+            await _supabase.from('warehouse_items').update({
+                category: category,
+                name: name,
+                meter: meterVal
+            }).eq('sn', sn);
         } catch (err) {}
     }
 
     closeEditItemModal();
-    if (typeof filterInventoryData === 'function') filterInventoryData();
+    filterInventoryData();
     playSuccessSound();
     showToast(`✏️ อัปเดตข้อมูล S/N: ${sn} เรียบร้อยแล้ว`);
-    if (typeof logUserActivity === 'function') {
-        await logUserActivity('UPDATE', `แก้ไขข้อมูลสินค้า SKU: ${category}, Meter: ${meterVal}`, sn);
-    }
+    await logUserActivity('UPDATE', `แก้ไขข้อมูลสินค้า SKU: ${category}, Meter: ${meterVal}`, sn);
 }
 
 function requestRelocateModal(id, sn, name, loc) {
-    if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-        const item = globalInventoryData.find(i => i.sn === sn);
-        if (item && typeof guardPendingSn === 'function' && guardPendingSn(item.sn)) return;
-    }
+    const item = globalInventoryData.find(i => i.sn === sn);
+    if (item && guardPendingSn(item.sn)) return;
 
     document.getElementById('relocateItemId').value = id;
     document.getElementById('relocateItemSn').textContent = sn;
     document.getElementById('relocateItemName').textContent = name;
     document.getElementById('relocateItemCurrentLoc').textContent = loc;
 
-    const modal = document.getElementById('relocateModal');
-    if (modal) modal.style.display = 'flex';
+    document.getElementById('relocateModal').style.display = 'flex';
     onRelocateAisleOrBayChange();
 }
 
 function closeRelocateModal() {
-    const modal = document.getElementById('relocateModal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('relocateModal').style.display = 'none';
 }
 
 function onRelocateAisleOrBayChange() {
-    const aisleElem = document.getElementById('relocateAisleSelect');
+    const aisle = document.getElementById('relocateAisleSelect').value;
     const baySelect = document.getElementById('relocateBaySelect');
-    if (!aisleElem || !baySelect) return;
-
-    const aisle = aisleElem.value;
 
     if (aisle === 'DOCK' || aisle === 'OFFICE' || aisle === 'PENDING') {
-        baySelect.innerHTML = `<option value="01">${escapeHTML(aisle)} Area</option>`;
-        const shelfElem = document.getElementById('relocateShelfSelect');
-        const slotElem = document.getElementById('relocateSlotSelect');
-        if (shelfElem) shelfElem.innerHTML = `<option value="1">1</option>`;
-        if (slotElem) slotElem.innerHTML = `<option value="1">1</option>`;
+        baySelect.innerHTML = `<option value="01">${aisle} Area</option>`;
+        document.getElementById('relocateShelfSelect').innerHTML = `<option value="1">1</option>`;
+        document.getElementById('relocateSlotSelect').innerHTML = `<option value="1">1</option>`;
         updateRelocatePreview();
         return;
     }
 
-    const cfg = (typeof aisleConfigs !== 'undefined' && aisleConfigs[aisle]) ? aisleConfigs[aisle] : { bays: 10, shelves: 1, slots: 10 };
+    const cfg = aisleConfigs[aisle] || { bays: 10, shelves: 1, slots: 10 };
     let bayOptions = '';
     for (let b = 1; b <= cfg.bays; b++) {
         const bStr = String(b).padStart(2, '0');
@@ -772,42 +651,33 @@ function onRelocateAisleOrBayChange() {
 
     let shelfOptions = '';
     for (let s = 1; s <= cfg.shelves; s++) shelfOptions += `<option value="${s}">ชั้น ${s}</option>`;
-    const shelfElem = document.getElementById('relocateShelfSelect');
-    if (shelfElem) shelfElem.innerHTML = shelfOptions;
+    document.getElementById('relocateShelfSelect').innerHTML = shelfOptions;
 
     let slotOptions = '';
     for (let sl = 1; sl <= cfg.slots; sl++) {
         const slStr = String(sl).padStart(2, '0');
         slotOptions += `<option value="${slStr}">ช่อง ${slStr}</option>`;
     }
-    const slotElem = document.getElementById('relocateSlotSelect');
-    if (slotElem) slotElem.innerHTML = slotOptions;
+    document.getElementById('relocateSlotSelect').innerHTML = slotOptions;
 
     autoSelectAvailableRelocateSlot();
 }
 
 function autoSelectAvailableRelocateSlot() {
-    const aisleElem = document.getElementById('relocateAisleSelect');
-    if (!aisleElem) return;
-
-    const aisle = aisleElem.value;
+    const aisle = document.getElementById('relocateAisleSelect').value;
     if (aisle === 'DOCK' || aisle === 'OFFICE' || aisle === 'PENDING') {
         updateRelocatePreview();
         return;
     }
-    const bayElem = document.getElementById('relocateBaySelect');
-    if (!bayElem) return;
-    const bay = bayElem.value;
-    const cfg = (typeof aisleConfigs !== 'undefined' && aisleConfigs[aisle]) ? aisleConfigs[aisle] : { bays: 10, shelves: 1, slots: 10 };
+    const bay = document.getElementById('relocateBaySelect').value;
+    const cfg = aisleConfigs[aisle] || { bays: 10, shelves: 1, slots: 10 };
 
     for (let s = 1; s <= cfg.shelves; s++) {
         for (let sl = 1; sl <= cfg.slots; sl++) {
             const testLoc = `${aisle}-${bay}-${s}-${String(sl).padStart(2, '0')}`;
-            if (typeof occupiedLocationsSet !== 'undefined' && !occupiedLocationsSet.has(testLoc)) {
-                const shelfSelect = document.getElementById('relocateShelfSelect');
-                const slotSelect = document.getElementById('relocateSlotSelect');
-                if (shelfSelect) shelfSelect.value = s;
-                if (slotSelect) slotSelect.value = String(sl).padStart(2, '0');
+            if (!occupiedLocationsSet.has(testLoc)) {
+                document.getElementById('relocateShelfSelect').value = s;
+                document.getElementById('relocateSlotSelect').value = String(sl).padStart(2, '0');
                 updateRelocatePreview();
                 return;
             }
@@ -817,115 +687,83 @@ function autoSelectAvailableRelocateSlot() {
 }
 
 function updateRelocatePreview() {
-    const aisleElem = document.getElementById('relocateAisleSelect');
-    if (!aisleElem) return;
-
-    const aisle = aisleElem.value;
-    const badge = document.getElementById('relocatePreviewBadge');
-    if (!badge) return;
-
+    const aisle = document.getElementById('relocateAisleSelect').value;
     if (aisle === 'DOCK' || aisle === 'OFFICE' || aisle === 'PENDING') {
-        badge.textContent = aisle;
+        document.getElementById('relocatePreviewBadge').textContent = aisle;
         return;
     }
-    const bayElem = document.getElementById('relocateBaySelect');
-    const shelfElem = document.getElementById('relocateShelfSelect');
-    const slotElem = document.getElementById('relocateSlotSelect');
+    const bay = document.getElementById('relocateBaySelect').value;
+    const shelf = document.getElementById('relocateShelfSelect').value;
+    const slot = document.getElementById('relocateSlotSelect').value;
 
-    const bay = bayElem ? bayElem.value : '01';
-    const shelf = shelfElem ? shelfElem.value : '1';
-    const slot = slotElem ? slotElem.value : '01';
-
-    badge.textContent = `${aisle}-${bay}-${shelf}-${slot}`;
+    document.getElementById('relocatePreviewBadge').textContent = `${aisle}-${bay}-${shelf}-${slot}`;
 }
 
 async function submitRelocateLocation() {
-    const snElem = document.getElementById('relocateItemSn');
-    const badgeElem = document.getElementById('relocatePreviewBadge');
-    if (!snElem || !badgeElem) return;
-
-    const sn = snElem.textContent;
-    const newLoc = badgeElem.textContent;
+    const sn = document.getElementById('relocateItemSn').textContent;
+    const newLoc = document.getElementById('relocatePreviewBadge').textContent;
 
     if (newLoc !== 'DOCK' && newLoc !== 'OFFICE' && newLoc !== 'PENDING') {
-        if (typeof occupiedLocationsSet !== 'undefined' && occupiedLocationsSet.has(newLoc.toUpperCase())) {
+        if (occupiedLocationsSet.has(newLoc.toUpperCase())) {
             alert(`⚠️ พิกัด ${newLoc} มีสินค้าจัดเก็บอยู่แล้ว! กรุณาเลือกพิกัดอื่น`);
             return;
         }
     }
 
-    if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-        const item = globalInventoryData.find(i => i.sn === sn);
-        if (item) {
-            item.location = newLoc;
-        }
+    const item = globalInventoryData.find(i => i.sn === sn);
+    if (item) {
+        item.location = newLoc;
     }
 
-    if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
+    rebuildOccupiedSet();
 
     if (navigator.onLine) {
         try {
-            const client = getSupabaseClient();
-            if (client) {
-                await client.from('warehouse_items').update({ location: newLoc }).eq('sn', sn);
-            }
+            await _supabase.from('warehouse_items').update({ location: newLoc }).eq('sn', sn);
         } catch (e) {}
     }
 
     closeRelocateModal();
-    if (typeof filterInventoryData === 'function') filterInventoryData();
-    if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    filterInventoryData();
+    refreshLocationVisualizerIfActive();
     playSuccessSound();
     showToast(`🚚 ย้าย S/N: ${sn} ไปยังพิกัด ${newLoc} เรียบร้อยแล้ว`);
-    if (typeof logUserActivity === 'function') {
-        await logUserActivity('RELOCATE', `ย้ายพิกัดไปที่: ${newLoc}`, sn);
-    }
+    await logUserActivity('RELOCATE', `ย้ายพิกัดไปที่: ${newLoc}`, sn);
 }
 
 function requestBatchRelocateModal() {
-    if (typeof selectedItemSnSet === 'undefined' || selectedItemSnSet.size === 0) {
-        alert("⚠ กรุณาติ๊กเลือกรายการสินค้าในตารางอย่างน้อย 1 รายการเพื่อย้าย");
+    if (selectedItemSnSet.size === 0) {
+        alert("⚠️️ กรุณาติ๊กเลือกรายการสินค้าในตารางอย่างน้อย 1 รายการเพื่อย้าย");
         return;
     }
 
-    const countElem = document.getElementById('batchRelocateTotalCount');
-    if (countElem) countElem.textContent = selectedItemSnSet.size;
-
+    document.getElementById('batchRelocateTotalCount').textContent = selectedItemSnSet.size;
     const select = document.getElementById('batchRelocateAisleSelect');
-    if (select && typeof masterAisles !== 'undefined' && Array.isArray(masterAisles)) {
-        select.innerHTML = masterAisles.map(a => `<option value="${escapeHTML(a)}">แถว ${escapeHTML(a)}</option>`).join('');
-    }
+    select.innerHTML = masterAisles.map(a => `<option value="${escapeHTML(a)}">แถว ${escapeHTML(a)}</option>`).join('');
 
-    const modal = document.getElementById('batchRelocateModal');
-    if (modal) modal.style.display = 'flex';
+    document.getElementById('batchRelocateModal').style.display = 'flex';
     updateBatchRelocateCapacityPreview();
 }
 
 function closeBatchRelocateModal() {
-    const modal = document.getElementById('batchRelocateModal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('batchRelocateModal').style.display = 'none';
 }
 
 function updateBatchRelocateCapacityPreview() {
-    const aisleElem = document.getElementById('batchRelocateAisleSelect');
+    const aisle = document.getElementById('batchRelocateAisleSelect').value;
     const text = document.getElementById('batchCapacityPreviewText');
-    if (!aisleElem || !text) return;
-
-    const aisle = aisleElem.value;
     if (aisle === 'DOCK' || aisle === 'OFFICE' || aisle === 'PENDING') {
         text.textContent = `พื้นที่ ${aisle} พร้อมรองรับทุกรายการที่เลือก`;
-        text.style.color = 'var(--text-main)';
         return;
     }
 
-    const cfg = (typeof aisleConfigs !== 'undefined' && aisleConfigs[aisle]) ? aisleConfigs[aisle] : { bays: 10, shelves: 1, slots: 10 };
+    const cfg = aisleConfigs[aisle] || { bays: 10, shelves: 1, slots: 10 };
     const totalSlots = cfg.bays * cfg.shelves * cfg.slots;
-    const occupiedInAisle = (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) ? globalInventoryData.filter(i => (i.location || '').toUpperCase().startsWith(`${aisle}-`)).length : 0;
+    const occupiedInAisle = globalInventoryData.filter(i => (i.location || '').toUpperCase().startsWith(`${aisle}-`)).length;
     const freeSlots = totalSlots - occupiedInAisle;
 
-    const reqCount = (typeof selectedItemSnSet !== 'undefined') ? selectedItemSnSet.size : 0;
-    text.textContent = `แถว ${aisle} มีพื้นที่ว่างประมาณ ${freeSlots} ช่อง (ต้องการย้าย ${reqCount} รายการ)`;
-    if (freeSlots < reqCount) {
+    text.textContent = `แถว ${aisle} มีพื้นที่ว่างประมาณ ${freeSlots} ช่อง (ต้องการย้าย ${selectedItemSnSet.size} รายการ)`;
+    if (freeSlots < selectedItemSnSet.size) {
         text.style.color = 'var(--danger)';
     } else {
         text.style.color = 'var(--success)';
@@ -933,43 +771,33 @@ function updateBatchRelocateCapacityPreview() {
 }
 
 async function executeBatchRelocate() {
-    const aisleElem = document.getElementById('batchRelocateAisleSelect');
-    if (!aisleElem || typeof selectedItemSnSet === 'undefined') return;
-
-    const targetAisle = aisleElem.value;
+    const targetAisle = document.getElementById('batchRelocateAisleSelect').value;
     const snList = Array.from(selectedItemSnSet);
-    const client = getSupabaseClient();
 
     for (const sn of snList) {
-        if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-            const item = globalInventoryData.find(i => i.sn === sn);
-            if (item) {
-                const freeLoc = allocateFreeSlot(targetAisle);
-                item.location = freeLoc;
-                if (navigator.onLine && client) {
-                    try {
-                        await client.from('warehouse_items').update({ location: freeLoc }).eq('sn', sn);
-                    } catch(e) {}
-                }
+        const item = globalInventoryData.find(i => i.sn === sn);
+        if (item) {
+            const freeLoc = allocateFreeSlot(targetAisle);
+            item.location = freeLoc;
+            if (navigator.onLine) {
+                await _supabase.from('warehouse_items').update({ location: freeLoc }).eq('sn', sn);
             }
         }
     }
 
-    if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
+    rebuildOccupiedSet();
     selectedItemSnSet.clear();
     closeBatchRelocateModal();
-    if (typeof filterInventoryData === 'function') filterInventoryData();
-    if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    filterInventoryData();
+    refreshLocationVisualizerIfActive();
     playSuccessSound();
     showToast(`🚀 ย้ายสินค้า ${snList.length} รายการไปยังแถว ${targetAisle} เรียบร้อยแล้ว`);
-    if (typeof logUserActivity === 'function') {
-        await logUserActivity('BATCH_RELOCATE', `ย้ายสินค้ารวม ${snList.length} รายการไปยังแถว ${targetAisle}`);
-    }
+    await logUserActivity('BATCH_RELOCATE', `ย้ายสินค้ารวม ${snList.length} รายการไปยังแถว ${targetAisle}`);
 }
 
 function allocateFreeSlot(aisle) {
     if (aisle === 'DOCK' || aisle === 'OFFICE' || aisle === 'PENDING') return aisle;
-    const cfg = (typeof aisleConfigs !== 'undefined' && aisleConfigs[aisle]) ? aisleConfigs[aisle] : { bays: 10, shelves: 1, slots: 10 };
+    const cfg = aisleConfigs[aisle] || { bays: 10, shelves: 1, slots: 10 };
     
     for (let b = 1; b <= cfg.bays; b++) {
         const bayStr = String(b).padStart(2, '0');
@@ -977,7 +805,7 @@ function allocateFreeSlot(aisle) {
             for (let sl = 1; sl <= cfg.slots; sl++) {
                 const slotStr = String(sl).padStart(2, '0');
                 const loc = `${aisle}-${bayStr}-${s}-${slotStr}`;
-                if (typeof occupiedLocationsSet !== 'undefined' && !occupiedLocationsSet.has(loc)) { 
+                if (!occupiedLocationsSet.has(loc)) { 
                     occupiedLocationsSet.add(loc); 
                     return loc; 
                 }
@@ -993,26 +821,22 @@ function requestDeleteModal(mode, sn = null, id = null) {
     pendingDeleteId = id;
 
     const details = document.getElementById('deleteConfirmModalDetails');
-    if (!details) return;
-
     if (mode === 'SINGLE') {
-        if (typeof guardPendingSn === 'function' && guardPendingSn(sn)) return;
+        if (guardPendingSn(sn)) return;
         details.textContent = `S/N: ${sn}`;
     } else {
-        if (typeof selectedItemSnSet === 'undefined' || selectedItemSnSet.size === 0) {
+        if (selectedItemSnSet.size === 0) {
             alert("⚠️ กรุณาเลือกรายการที่ต้องการลบอย่างน้อย 1 รายการ");
             return;
         }
         details.textContent = `รายการที่เลือกทั้งหมด (${selectedItemSnSet.size} รายการ): ${Array.from(selectedItemSnSet).slice(0, 5).join(', ')}${selectedItemSnSet.size > 5 ? '...' : ''}`;
     }
 
-    const modal = document.getElementById('deleteConfirmModal');
-    if (modal) modal.style.display = 'flex';
+    document.getElementById('deleteConfirmModal').style.display = 'flex';
 }
 
 function closeDeleteConfirmModal() {
-    const modal = document.getElementById('deleteConfirmModal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('deleteConfirmModal').style.display = 'none';
 }
 
 async function executeDeleteAction() {
@@ -1020,87 +844,62 @@ async function executeDeleteAction() {
     if (pendingDeleteMode === 'SINGLE') {
         snsToDelete = [pendingDeleteSn];
     } else {
-        if (typeof selectedItemSnSet !== 'undefined') {
-            snsToDelete = Array.from(selectedItemSnSet);
-        }
+        snsToDelete = Array.from(selectedItemSnSet);
     }
 
     if (currentUser && currentUser.role === 'user') {
-        if (typeof createPendingApprovalRequest === 'function') {
-            createPendingApprovalRequest('DELETE', `ขอลบสินค้าออกจากคลัง (${snsToDelete.length} รายการ)`, snsToDelete, { snsToDelete });
-        }
+        createPendingApprovalRequest('DELETE', `ขอลบสินค้าออกจากคลัง (${snsToDelete.length} รายการ)`, snsToDelete, { snsToDelete });
         closeDeleteConfirmModal();
-        if (typeof selectedItemSnSet !== 'undefined') selectedItemSnSet.clear();
-        if (typeof updateSelectedCountUI === 'function') updateSelectedCountUI();
+        selectedItemSnSet.clear();
+        updateSelectedCountUI();
         return;
     }
 
-    if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-        globalInventoryData = globalInventoryData.filter(i => !snsToDelete.includes(i.sn));
-    }
-    if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
+    globalInventoryData = globalInventoryData.filter(i => !snsToDelete.includes(i.sn));
+    rebuildOccupiedSet();
 
     if (navigator.onLine) {
         try {
-            const client = getSupabaseClient();
-            if (client) {
-                await client.from('warehouse_items').delete().in('sn', snsToDelete);
-            }
+            await _supabase.from('warehouse_items').delete().in('sn', snsToDelete);
         } catch (e) {}
     }
 
     closeDeleteConfirmModal();
-    if (typeof selectedItemSnSet !== 'undefined') selectedItemSnSet.clear();
-    if (typeof filterInventoryData === 'function') filterInventoryData();
-    if (typeof updateKPIs === 'function') updateKPIs();
-    if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    selectedItemSnSet.clear();
+    filterInventoryData();
+    updateKPIs();
+    refreshLocationVisualizerIfActive();
     playSuccessSound();
     showToast(`🗑️ ลบสินค้าออกจากระบบ ${snsToDelete.length} รายการเรียบร้อย`);
-    if (typeof logUserActivity === 'function') {
-        await logUserActivity('DELETE', `ลบสินค้าออกจากระบบ (${snsToDelete.length} รายการ)`, snsToDelete.join(', '));
-    }
+    await logUserActivity('DELETE', `ลบสินค้าออกจากระบบ (${snsToDelete.length} รายการ)`, snsToDelete.join(', '));
 }
 
 function openExcelExportModal() {
-    const group = document.getElementById('exportAisleGroup');
-    if (group) group.style.display = 'none';
-
+    document.getElementById('exportAisleGroup').style.display = 'none';
     const select = document.getElementById('exportAisleSelect');
-    if (select && typeof masterAisles !== 'undefined' && Array.isArray(masterAisles)) {
-        select.innerHTML = masterAisles.map(a => `<option value="${escapeHTML(a)}">แถว ${escapeHTML(a)}</option>`).join('');
-    }
-
-    const modal = document.getElementById('excelExportModal');
-    if (modal) modal.style.display = 'flex';
+    select.innerHTML = masterAisles.map(a => `<option value="${escapeHTML(a)}">แถว ${escapeHTML(a)}</option>`).join('');
+    document.getElementById('excelExportModal').style.display = 'flex';
 }
 
 function closeExcelExportModal() {
-    const modal = document.getElementById('excelExportModal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('excelExportModal').style.display = 'none';
 }
 
 function onExportScopeChange(val) {
-    const group = document.getElementById('exportAisleGroup');
-    if (group) group.style.display = val === 'AISLE' ? 'block' : 'none';
+    document.getElementById('exportAisleGroup').style.display = val === 'AISLE' ? 'block' : 'none';
 }
 
 function executeExcelExport() {
-    const scopeElem = document.getElementById('exportScopeSelect');
-    if (!scopeElem) return;
-
-    const scope = scopeElem.value;
+    const scope = document.getElementById('exportScopeSelect').value;
     let dataToExport = [];
 
     if (scope === 'ALL') {
-        dataToExport = typeof globalInventoryData !== 'undefined' ? globalInventoryData : [];
+        dataToExport = globalInventoryData;
     } else if (scope === 'FILTERED') {
-        dataToExport = typeof currentFilteredItems !== 'undefined' ? currentFilteredItems : [];
+        dataToExport = currentFilteredItems;
     } else if (scope === 'AISLE') {
-        const selectedAisleElem = document.getElementById('exportAisleSelect');
-        const selectedAisle = selectedAisleElem ? selectedAisleElem.value : '';
-        if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-            dataToExport = globalInventoryData.filter(i => (i.location || '').toUpperCase().startsWith(`${selectedAisle}-`) || (i.location || '').toUpperCase() === selectedAisle);
-        }
+        const selectedAisle = document.getElementById('exportAisleSelect').value;
+        dataToExport = globalInventoryData.filter(i => (i.location || '').toUpperCase().startsWith(`${selectedAisle}-`) || (i.location || '').toUpperCase() === selectedAisle);
     }
 
     if (dataToExport.length === 0) {
@@ -1119,63 +918,48 @@ function executeExcelExport() {
         'วันที่รับเข้า': i.created_at ? new Date(i.created_at).toLocaleString('th-TH') : '-'
     }));
 
-    if (typeof XLSX !== 'undefined') {
-        const worksheet = XLSX.utils.json_to_sheet(exportRows);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'StockInventory');
-        
-        const fileName = `WMS_Inventory_Export_${new Date().toISOString().slice(0, 10)}.xlsx`;
-        XLSX.writeFile(workbook, fileName);
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'StockInventory');
+    
+    const fileName = `WMS_Inventory_Export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
 
-        closeExcelExportModal();
-        showToast("📊 ส่งออกไฟล์ Excel เรียบร้อยแล้ว");
-    } else {
-        alert("⚠️ ไม่พบไลบรารี XLSX กรุณาตรวจสอบสคริปต์หน้าเว็บ");
-    }
+    closeExcelExportModal();
+    showToast("📊 ส่งออกไฟล์ Excel เรียบร้อยแล้ว");
 }
 
 let currentPrintBarcodeList = [];
 
 function openPrintBarcodeModal(mode, targetSn = null) {
     if (mode === 'SINGLE') {
-        if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-            const item = globalInventoryData.find(i => i.sn === targetSn);
-            currentPrintBarcodeList = item ? [item] : [];
-        }
+        const item = globalInventoryData.find(i => i.sn === targetSn);
+        currentPrintBarcodeList = item ? [item] : [];
     } else {
-        if (typeof selectedItemSnSet === 'undefined' || selectedItemSnSet.size === 0) {
+        if (selectedItemSnSet.size === 0) {
             alert("⚠️ กรุณาเลือกรายการสติ๊กเกอร์บาร์โค้ดที่ต้องการพิมพ์ในตาราง");
             return;
         }
-        if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-            currentPrintBarcodeList = globalInventoryData.filter(i => selectedItemSnSet.has(i.sn));
-        }
+        currentPrintBarcodeList = globalInventoryData.filter(i => selectedItemSnSet.has(i.sn));
     }
 
-    const countBadge = document.getElementById('printPreviewCountBadge');
-    if (countBadge) countBadge.textContent = `จำนวน ${currentPrintBarcodeList.length} ใบ`;
-
-    const modal = document.getElementById('printBarcodeModal');
-    if (modal) modal.style.display = 'flex';
+    document.getElementById('printPreviewCountBadge').textContent = `จำนวน ${currentPrintBarcodeList.length} ใบ`;
+    document.getElementById('printBarcodeModal').style.display = 'flex';
     updatePrintPreviewLayout();
 }
 
 function closePrintBarcodeModal() {
-    const modal = document.getElementById('printBarcodeModal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('printBarcodeModal').style.display = 'none';
 }
 
 function updatePrintPreviewLayout() {
-    const sizeElem = document.getElementById('thermalSizeSelect');
-    if (!sizeElem) return;
-    const size = sizeElem.value;
-
+    const size = document.getElementById('thermalSizeSelect').value;
     const container = document.getElementById('barcodePreviewArea');
     if (!container) return;
 
     container.innerHTML = '';
 
-    if (!currentPrintBarcodeList || currentPrintBarcodeList.length === 0) {
+    if (currentPrintBarcodeList.length === 0) {
         container.className = 'thermal-label-container';
         container.innerHTML = `<div style="text-align:center; padding:30px; color:#64748b; font-weight:600;">ไม่พบรายการสติ๊กเกอร์สำหรับแสดงผล</div>`;
         return;
@@ -1220,17 +1004,17 @@ function updatePrintPreviewLayout() {
                 const globalIdx = pageIdx * pageSize + itemIdx;
                 const svgId = `barcode-svg-${globalIdx}`;
                 try {
-                    if (typeof JsBarcode !== 'undefined') {
-                        JsBarcode(`#${svgId}`, item.sn, {
-                            format: "CODE128",
-                            width: 1.1,
-                            height: 24,
-                            displayValue: true,
-                            fontSize: 9,
-                            margin: 1
-                        });
-                    }
-                } catch (e) {}
+                    JsBarcode(`#${svgId}`, item.sn, {
+                        format: "CODE128",
+                        width: 1.1,
+                        height: 24,
+                        displayValue: true,
+                        fontSize: 9,
+                        margin: 1
+                    });
+                } catch (e) {
+                    console.warn("JsBarcode Error:", e);
+                }
             });
         }
     } else {
@@ -1265,27 +1049,24 @@ function updatePrintPreviewLayout() {
             container.appendChild(card);
 
             try {
-                if (typeof JsBarcode !== 'undefined') {
-                    JsBarcode(`#${svgId}`, item.sn, {
-                        format: "CODE128",
-                        width: bcWidth,
-                        height: bcHeight,
-                        displayValue: true,
-                        fontSize: bcFontSize,
-                        margin: bcMargin
-                    });
-                }
-            } catch (e) {}
+                JsBarcode(`#${svgId}`, item.sn, {
+                    format: "CODE128",
+                    width: bcWidth,
+                    height: bcHeight,
+                    displayValue: true,
+                    fontSize: bcFontSize,
+                    margin: bcMargin
+                });
+            } catch (e) {
+                console.warn("JsBarcode Error:", e);
+            }
         });
     }
 }
 
 // 🟢 ปรับปรุงเอนจินส่งคำสั่งพิมพ์กระดาษ A4 ต่อเนื่อง โดยสกัดเฉพาะ .a4-page-sheet ไม่แทรกหน้าว่าง
 function triggerPDFPrintPreview() {
-    const sizeElem = document.getElementById('thermalSizeSelect');
-    if (!sizeElem) return;
-    const size = sizeElem.value;
-
+    const size = document.getElementById('thermalSizeSelect').value;
     const previewContainer = document.getElementById('barcodePreviewArea');
     if (!previewContainer) return;
 
@@ -1304,7 +1085,6 @@ function triggerPDFPrintPreview() {
     }
 
     const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
 
     let pageStyle = '';
     if (size === 'A4') {

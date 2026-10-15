@@ -2,7 +2,6 @@
 // --- MODULE 8: WAREHOUSE SETTINGS & MENU DB MAPPING ENGINE (UPDATED) ---
 // =========================================================================
 
-// Safe Escape HTML Helper Fallback (Secures against XSS vulnerabilities)
 if (typeof escapeHTML !== 'function') {
     function escapeHTML(str) {
         if (str === null || str === undefined) return '';
@@ -15,7 +14,6 @@ if (typeof escapeHTML !== 'function') {
     }
 }
 
-// ใช้ Global Window Variable เพื่อป้องกันตัวแปรซ้ำซ้อน
 window.masterAisles = window.masterAisles || [];
 window.aisleConfigs = window.aisleConfigs || {};
 
@@ -31,9 +29,6 @@ let menuDbMappingData = [
     { menuId: 'view-settings', menuTitle: 'ตั้งค่าพิกัดคลังสินค้า', dbTable: 'system_settings / profiles', status: 'Active (System Config)', desc: 'บันทึกโครงสร้างคลัง จัดการสิทธิ์ผู้ใช้ และตรวจสอบ DB Connection' }
 ];
 
-/**
- * 🟢 บันทึกลำดับตำแหน่งแถว รายงาน DB Mapping และสถานะล็อก ลง Supabase DB 100%
- */
 async function saveAllWarehouseConfigsToDB() {
     const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
     
@@ -52,7 +47,6 @@ async function saveAllWarehouseConfigsToDB() {
         updated_at: new Date().toISOString()
     };
 
-    // บันทึกลง LocalStorage สำรอง
     try {
         localStorage.setItem('WMS_AISLE_CONFIGS', JSON.stringify(aislePayload.value));
         localStorage.setItem('WMS_MENU_MAPPING', JSON.stringify(mappingPayload.value));
@@ -64,10 +58,8 @@ async function saveAllWarehouseConfigsToDB() {
     }
 
     try {
-        // ลอง Upsert แบบมี updated_at ก่อน
         let { error: err1 } = await client.from('system_settings').upsert(aislePayload, { onConflict: 'key' });
         
-        // หาก Schema ใน DB ยังไม่ได้เพิ่ม updated_at ให้ส่งเฉพาะ key และ value เป็น Fallback
         if (err1 && err1.message && err1.message.includes('updated_at')) {
             const fallbackAislePayload = { key: 'aisle_configs', value: aislePayload.value };
             const fallbackMappingPayload = { key: 'menu_db_mapping', value: mappingPayload.value };
@@ -95,9 +87,6 @@ async function saveAllWarehouseConfigsToDB() {
     }
 }
 
-/**
- * 🟢 โหลดโครงสร้างแถว ลำดับตำแหน่งพิกัดล่าสุด จาก Supabase DB
- */
 async function loadWarehouseConfigsFromDB(retryCount = 0) {
     try {
         let dbAisles = [];
@@ -112,7 +101,6 @@ async function loadWarehouseConfigsFromDB(retryCount = 0) {
         }
 
         if (client) {
-            // 1. ดึงข้อมูลตั้งค่าแถวจัดเก็บ
             const { data: aisleData, error: aisleErr } = await client
                 .from('system_settings')
                 .select('*')
@@ -131,7 +119,6 @@ async function loadWarehouseConfigsFromDB(retryCount = 0) {
                 }
             }
 
-            // 2. ดึงข้อมูลรายงาน DB Mapping
             const { data: mapData, error: mapErr } = await client
                 .from('system_settings')
                 .select('*')
@@ -160,7 +147,6 @@ async function loadWarehouseConfigsFromDB(retryCount = 0) {
             }
         }
 
-        // ยึดลำดับพิกัดจาก DB เป็นหลัก 100%
         if (loadedSuccess && dbAisles.length > 0) {
             window.masterAisles = dbAisles;
             window.aisleConfigs = dbConfigs;
@@ -181,9 +167,7 @@ async function loadWarehouseConfigsFromDB(retryCount = 0) {
         if (window.masterAisles.length > 0 && (!window.currentSelectedAisle || !window.masterAisles.includes(window.currentSelectedAisle))) {
             window.currentSelectedAisle = window.masterAisles[0];
         }
-    } catch(e) {
-        // Safe Catch
-    }
+    } catch(e) {}
 
     renderAisleSettingsTable();
     if (typeof populateAisleDropdowns === 'function') populateAisleDropdowns();
@@ -191,9 +175,6 @@ async function loadWarehouseConfigsFromDB(retryCount = 0) {
     renderMenuDatabaseMappingTable();
 }
 
-/**
- * 🟢 ระบบ Realtime Listener Sync สลับลำดับแถวข้ามเครื่องอัตโนมัติ
- */
 function initWarehouseSettingsRealtime() {
     const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
     if (!client) return;
@@ -226,14 +207,9 @@ function initWarehouseSettingsRealtime() {
                 }
             })
             .subscribe();
-    } catch (e) {
-        // Safe Catch
-    }
+    } catch (e) {}
 }
 
-/**
- * 🟢 ฟังก์ชันเลื่อนตำแหน่งแถวขึ้น-ลง พร้อมบันทึกพิกัดลง DB ทันที
- */
 async function moveAisleOrder(index, direction) {
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= window.masterAisles.length) return;
@@ -249,9 +225,6 @@ async function moveAisleOrder(index, direction) {
     await saveAllWarehouseConfigsToDB();
 }
 
-/**
- * 🟢 สลับสถานะ ล็อก / ปลดล็อก โครงสร้างแถว พร้อมบันทึก DB
- */
 async function toggleAisleLock(aisle) {
     if (!window.aisleConfigs[aisle]) {
         window.aisleConfigs[aisle] = { bays: 10, shelves: 1, slots: 10, is_locked: false };
@@ -262,9 +235,6 @@ async function toggleAisleLock(aisle) {
     await saveAllWarehouseConfigsToDB();
 }
 
-/**
- * 🟢 อัปเดตพารามิเตอร์ของแถว (จำนวนล็อก ชั้น ช่อง) พร้อมบันทึก DB
- */
 async function updateAisleParam(aisle, key, val) {
     if (!window.aisleConfigs[aisle]) {
         window.aisleConfigs[aisle] = { bays: 10, shelves: 1, slots: 10, is_locked: false };
@@ -273,9 +243,6 @@ async function updateAisleParam(aisle, key, val) {
     await saveAllWarehouseConfigsToDB();
 }
 
-/**
- * 🟢 เพิ่มแถวจัดเก็บใหม่ พร้อมบันทึก DB
- */
 async function addNewAisleConfig() {
     const input = document.getElementById('newAisleInput');
     if (!input) return;
@@ -293,9 +260,7 @@ async function addNewAisleConfig() {
     await saveAllWarehouseConfigsToDB();
 }
 
-/**
- * 🟢 ยืนยันรหัสผ่านและลบแถวจัดเก็บ พร้อมบันทึก DB
- */
+// 🟢 ปรับปรุงการลบแถวโดยตรวจสอบสิทธิ์รหัสผ่านผ่านการ Hash ใน Supabase DB
 async function verifyAndDeleteAisle(aisle) {
     const cfg = window.aisleConfigs[aisle];
     if (cfg && cfg.is_locked) {
@@ -303,12 +268,14 @@ async function verifyAndDeleteAisle(aisle) {
         return;
     }
 
-    const pinCode = prompt(`🔐 ป้องกันการลบพลาด: กรุณากรอกรหัสผ่านยืนยันเพื่อลบแถว "${escapeHTML(aisle)}" (พิมพ์รหัสผ่านแอดมิน):`);
+    const pinCode = prompt(`🔐 ยืนยันสิทธิ์: กรุณากรอกรหัสผ่านผู้ดูแลระบบ (Admin Password) เพื่อลบแถว "${escapeHTML(aisle)}":`);
     if (pinCode === null) return;
 
-    if (typeof currentUser === 'undefined' || !currentUser || pinCode !== (currentUser.password || '')) {
+    const isValidAdmin = typeof verifyAdminPasswordSecure === 'function' ? await verifyAdminPasswordSecure(pinCode) : false;
+
+    if (!isValidAdmin) {
         if (typeof playErrorSound === 'function') playErrorSound();
-        alert("❌ รหัสยืนยันไม่ถูกต้อง! ยกเลิกการลบแถว");
+        alert("❌ รหัสผ่านผู้ดูแลระบบไม่ถูกต้อง! ยกเลิกการลบแถว");
         return;
     }
 
@@ -323,9 +290,6 @@ async function verifyAndDeleteAisle(aisle) {
     }
 }
 
-/**
- * 🟢 เรนเดอร์ตารางการตั้งค่าแถวจัดเก็บ
- */
 function renderAisleSettingsTable() {
     const tbody = document.getElementById('aisleSettingsTableBody');
     if (!tbody) return;
@@ -377,9 +341,6 @@ function renderAisleSettingsTable() {
     });
 }
 
-/**
- * 🟢 เรนเดอร์ตารางรายงานการเชื่อมต่อฐานข้อมูล
- */
 function renderMenuDatabaseMappingTable() {
     const tbody = document.getElementById('menuDbMappingTableBody');
     if (!tbody) return;
@@ -404,7 +365,6 @@ function renderMenuDatabaseMappingTable() {
     tbody.innerHTML = html;
 }
 
-// ผูกฟังก์ชันลง Global Scope
 window.saveAllWarehouseConfigsToDB = saveAllWarehouseConfigsToDB;
 window.loadWarehouseConfigsFromDB = loadWarehouseConfigsFromDB;
 window.moveAisleOrder = moveAisleOrder;
