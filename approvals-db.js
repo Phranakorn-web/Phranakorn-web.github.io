@@ -250,7 +250,7 @@ function saveLocalApprovalsStore(data) {
 }
 
 // -------------------------------------------------------------------------
-// 2. ฝั่ง User ทั่วไปส่งคำขออนุมัติ (ลบ / สแกนจ่าย / ย้ายพิกัด)
+// 2. ฝั่ง User ทั่วไปส่งคำขออนุมัติ (ลบ / สแกนจ่าย / ย้ายพิกัด / ย้ายกลุ่ม)
 // -------------------------------------------------------------------------
 async function createPendingApprovalRequest(type, desc, targetSns, payloadData) {
     const cleanTargetSns = Array.isArray(targetSns)
@@ -659,28 +659,50 @@ async function approveUserRequest(id) {
 
     if (client) {
         try {
-            if (req.request_type === 'DELETE' || req.request_type === 'DISPATCH') {
-                await client.from('warehouse_items').delete().in('sn', req.target_sns);
-            } else if (req.request_type === 'TRANSFER' && req.payload && req.payload.target_location) {
+            const reqType = req.request_type;
+            const targetSns = Array.isArray(req.target_sns) ? req.target_sns : [req.target_sns];
+
+            // 🟢 1. หากเป็นคำขอลบสินค้า หรือ จ่ายสินค้าออกจากคลัง
+            if (reqType === 'DELETE' || reqType === 'OUTBOUND' || reqType === 'DISPATCH') {
+                await client.from('warehouse_items').delete().in('sn', targetSns);
+            } 
+            // 🟢 2. หากเป็นคำขอย้ายพิกัดสินค้าเดี่ยว
+            else if ((reqType === 'RELOCATE' || reqType === 'TRANSFER') && req.payload && req.payload.target_location) {
                 await client.from('warehouse_items').update({
                     location: req.payload.target_location,
                     updated_at: new Date().toISOString()
-                }).in('sn', req.target_sns);
+                }).in('sn', targetSns);
+            }
+            // 🟢 3. หากเป็นคำขอย้ายพิกัดสินค้าแบบกลุ่ม (Batch Relocate)
+            else if (reqType === 'BATCH_RELOCATE' && req.payload && req.payload.target_aisle) {
+                const targetAisle = req.payload.target_aisle;
+                for (const sn of targetSns) {
+                    const freeLoc = (typeof allocateFreeSlot === 'function') ? allocateFreeSlot(targetAisle) : targetAisle;
+                    await client.from('warehouse_items').update({
+                        location: freeLoc,
+                        updated_at: new Date().toISOString()
+                    }).eq('sn', sn);
+                }
             }
 
+            // อัปเดตสถานะคำขอเป็น APPROVED
             await client.from('approval_requests').update({
                 status: 'APPROVED',
                 approved_by: adminUser,
                 updated_at: new Date().toISOString()
             }).eq('id', id);
         } catch(e) {
-            // Safe Catch
+            console.error("Approve request execution failed:", e);
         }
     }
 
     const localList = getLocalApprovalsStore();
     const found = localList.find(r => String(r.id) === String(id));
-    if (found) { found.status = 'APPROVED'; found.approved_by = adminUser; saveLocalApprovalsStore(localList); }
+    if (found) { 
+        found.status = 'APPROVED'; 
+        found.approved_by = adminUser; 
+        saveLocalApprovalsStore(localList); 
+    }
 
     if (typeof showToast === 'function') showToast("✅ อนุมัติคำขอเรียบร้อยแล้ว");
     
@@ -731,6 +753,8 @@ function filterApprovalsByStatus(status) {
 window.createPendingApprovalRequest = createPendingApprovalRequest;
 window.refreshApprovalsUI = loadPendingApprovalsFromDB;
 window.filterApprovalsByStatus = filterApprovalsByStatus;
+window.approveUserRequest = approveUserRequest;
+window.rejectUserRequest = rejectUserRequest;
 
 // Auto Run Engine
 if (document.readyState === 'loading') {

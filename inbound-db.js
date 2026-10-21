@@ -1,134 +1,944 @@
 // =========================================================================
-// --- MODULE 3: FAST INBOUND DATABASE ENGINE ---
+// --- MODULE 3: FAST INBOUND DATABASE ENGINE (UPDATED & ENHANCED 100%) ---
 // =========================================================================
 
-// Safe Escape HTML Helper Fallback (Secures against XSS vulnerabilities)
-if (typeof escapeHTML !== 'function') {
-    function escapeHTML(str) {
-        if (str === null || str === undefined) return '';
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-    }
-}
-
-// Secure Dynamic Supabase Instance Getter
-function getSupabaseClient() {
-    if (typeof _supabase !== 'undefined' && _supabase) {
-        return _supabase;
-    }
-    if (typeof window !== 'undefined' && window.ENV && window.ENV.SUPABASE_CLIENT) {
-        return window.ENV.SUPABASE_CLIENT;
-    }
-    return null;
-}
-
 let recentInboundList = [];
+let fastScanLock = false; // ป้องกันการกดยิงซ้ำซ้อนในระดับมิลลิวินาที
 
+// 🟢 Helper: ดึงชื่อ-นามสกุลของผู้ใช้งานที่เข้าสู่ระบบ ณ ตอนนั้นแบบ Real-time 100%
+function getCurrentUserFullName() {
+    let u = null;
+    if (typeof window.currentUser !== 'undefined' && window.currentUser) {
+        u = window.currentUser;
+    } else if (typeof currentUser !== 'undefined' && currentUser) {
+        u = currentUser;
+    }
+
+    if (u) {
+        if (typeof u === 'string') return u;
+        const firstName = u.first_name || u.firstname || u.firstName || u.user_metadata?.first_name || '';
+        const lastName = u.last_name || u.lastname || u.lastName || u.user_metadata?.last_name || '';
+        if (firstName || lastName) return `${firstName} ${lastName}`.trim();
+        if (u.fullname || u.fullName || u.full_name) return u.fullname || u.fullName || u.full_name;
+        if (u.display_name || u.displayName) return u.display_name || u.displayName;
+        if (u.name) return u.name;
+        if (u.username) return u.username;
+        if (u.email) return u.email;
+    }
+
+    // กรณีอ่านจาก Storage ของระบบ WMS
+    const storageKeys = ['WMS_USER', 'currentUser', 'loggedInUser', 'user', 'sb-user-session'];
+    for (const key of storageKeys) {
+        try {
+            const raw = localStorage.getItem(key) || sessionStorage.getItem(key);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const userObj = parsed.user || parsed;
+                if (userObj) {
+                    const fn = userObj.first_name || userObj.firstname || userObj.firstName || userObj.user_metadata?.first_name || userObj.user_metadata?.full_name || '';
+                    const ln = userObj.last_name || userObj.lastname || userObj.lastName || userObj.user_metadata?.last_name || '';
+                    if (fn || ln) return `${fn} ${ln}`.trim();
+                    if (userObj.fullname || userObj.fullName || userObj.full_name) return userObj.fullname || userObj.fullName || userObj.full_name;
+                    if (userObj.name) return userObj.name;
+                    if (userObj.display_name || userObj.displayName) return userObj.display_name || userObj.displayName;
+                    if (userObj.email) return userObj.email;
+                }
+            }
+        } catch (e) {}
+    }
+
+    return 'ไม่ระบุผู้บันทึก';
+}
+
+// 🟢 Helper: ดึงการตั้งค่าพิกัดแถวแบบ Real-time โดยเชื่อมโยงกับ locations-db.js / global configs
+function getAisleConfig(aisleName) {
+    const key = String(aisleName || '').trim().toUpperCase();
+    if (typeof window.getAisleConfig === 'function') {
+        return window.getAisleConfig(key);
+    }
+    if (typeof window.aisleConfigs !== 'undefined' && window.aisleConfigs && window.aisleConfigs[key]) {
+        return window.aisleConfigs[key];
+    }
+    if (typeof aisleConfigs !== 'undefined' && aisleConfigs && aisleConfigs[key]) {
+        return aisleConfigs[key];
+    }
+    if (typeof window.masterWarehouseConfigs !== 'undefined' && window.masterWarehouseConfigs && window.masterWarehouseConfigs[key]) {
+        return window.masterWarehouseConfigs[key];
+    }
+    try {
+        const localCfg = localStorage.getItem('WMS_AISLE_CONFIGS');
+        if (localCfg) {
+            const parsed = JSON.parse(localCfg);
+            if (parsed && parsed[key]) return parsed[key];
+        }
+    } catch (e) {}
+
+    return { bays: 10, shelves: 1, slots: 10 };
+}
+
+// 🟢 Helper: แปลงพิกัดให้อยู่ในคีย์มาตรฐานระดับสากล (รองรับการเชื่อมโยงกับ locations-db.js 100%)
+function getNormalizedLocKey(locStr) {
+    if (!locStr) return '';
+    const clean = String(locStr).trim().toUpperCase();
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(clean)) return clean;
+
+    let parsed = null;
+    if (typeof window.parseLocationComponents === 'function') {
+        parsed = window.parseLocationComponents(clean);
+    } else if (typeof parseLocationComponents === 'function') {
+        parsed = parseLocationComponents(clean);
+    } else {
+        // Fallback Parser สอดคล้องกับ locations-db.js
+        let parts = clean.split(/[\-\/_]+/).filter(Boolean);
+        if (parts.length >= 4) {
+            const aisle = parts[0];
+            const bay = String(parseInt(parts[1], 10) || 1).padStart(2, '0');
+            const shelf = String(parseInt(parts[2], 10) || 1);
+            const slot = String(parseInt(parts[3], 10) || 1).padStart(2, '0');
+            parsed = { aisle, bay, shelf, slot };
+        }
+    }
+
+    if (parsed && parsed.aisle && parsed.bay) {
+        const aisle = String(parsed.aisle).toUpperCase();
+        const bay = String(parseInt(parsed.bay, 10) || 1).padStart(2, '0');
+        const shelf = String(parseInt(parsed.shelf, 10) || 1).padStart(2, '0');
+        const slot = String(parseInt(parsed.slot, 10) || 1).padStart(2, '0');
+        return `${aisle}-${bay}-${shelf}-${slot}`;
+    }
+    return clean;
+}
+
+// Helper: แปลงพิกัดให้เป็นฟอร์แมตมาตรฐาน (รองรับทั้งแบบ Pad และ Unpad Shelf)
+function normalizeLocationStandard(locStr) {
+    return getNormalizedLocKey(locStr);
+}
+
+// 🟢 Helper: ดึงข้อมูล S/N ที่จัดเก็บอยู่ในพิกัดนั้นๆ แบบเรียลไทม์ 100%
+function getOccupyingSnDetails(locStr) {
+    if (!locStr) return null;
+    const targetKey = getNormalizedLocKey(locStr);
+    const searchTarget = String(locStr).trim().toUpperCase();
+
+    const checkList = (list) => {
+        if (!Array.isArray(list)) return null;
+        for (const item of list) {
+            if (!item || item.status === 'OUT' || item.status === 'DISPATCHED' || item.status === 'ISSUED' || item.is_deleted || item.qty === 0) continue;
+            if (item.location) {
+                const itemRaw = String(item.location).trim().toUpperCase();
+                const itemKey = getNormalizedLocKey(item.location);
+                if (itemRaw === searchTarget || (itemKey && targetKey && itemKey === targetKey)) {
+                    return item;
+                }
+            }
+        }
+        return null;
+    };
+
+    let found = checkList(typeof globalInventoryData !== 'undefined' ? globalInventoryData : null);
+    if (!found) found = checkList(typeof offlineInboundQueue !== 'undefined' ? offlineInboundQueue : null);
+    if (!found) found = checkList(typeof recentInboundList !== 'undefined' ? recentInboundList : null);
+
+    return found;
+}
+
+// 🟢 Helper: ดึงพิกัดที่ถูกใช้งานอยู่ทั้งหมดในระบบคลังสินค้าแบบเรียลไทม์ 100% (แมตช์ทุกรูปแบบพิกัด)
+function getAllOccupiedLocationsSet() {
+    const occupied = new Set();
+    const addOccupiedLoc = (loc) => {
+        if (!loc) return;
+        const rawUpper = String(loc).trim().toUpperCase();
+        if (!rawUpper) return;
+
+        occupied.add(rawUpper);
+
+        const normKey = getNormalizedLocKey(rawUpper);
+        if (normKey) occupied.add(normKey);
+
+        let p = (typeof window.parseLocationComponents === 'function') ? window.parseLocationComponents(rawUpper) : null;
+        if (!p && typeof parseLocationComponents === 'function') p = parseLocationComponents(rawUpper);
+
+        if (p && p.aisle && p.bay) {
+            const aisle = String(p.aisle).toUpperCase();
+            const bStr = String(parseInt(p.bay, 10) || 1).padStart(2, '0');
+            const sNum = parseInt(p.shelf, 10) || 1;
+            const sStr = String(sNum).padStart(2, '0');
+            const slStr = String(parseInt(p.slot, 10) || 1).padStart(2, '0');
+
+            occupied.add(`${aisle}-${bStr}-${sNum}-${slStr}`);
+            occupied.add(`${aisle}-${bStr}-${sStr}-${slStr}`);
+            occupied.add(`${aisle}-${parseInt(p.bay, 10)}-${sNum}-${parseInt(p.slot, 10)}`);
+        }
+    };
+
+    const isItemOccupying = (item) => {
+        if (!item) return false;
+        if (item.status === 'OUT' || item.status === 'DISPATCHED' || item.status === 'ISSUED' || item.is_deleted || item.qty === 0) {
+            return false;
+        }
+        return true;
+    };
+
+    if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
+        globalInventoryData.forEach(item => { if (isItemOccupying(item) && item.location) addOccupiedLoc(item.location); });
+    }
+    if (typeof offlineInboundQueue !== 'undefined' && Array.isArray(offlineInboundQueue)) {
+        offlineInboundQueue.forEach(item => { if (isItemOccupying(item) && item.location) addOccupiedLoc(item.location); });
+    }
+    if (typeof recentInboundList !== 'undefined' && Array.isArray(recentInboundList)) {
+        recentInboundList.forEach(item => { if (isItemOccupying(item) && item.location) addOccupiedLoc(item.location); });
+    }
+    if (typeof occupiedLocationsSet !== 'undefined' && occupiedLocationsSet instanceof Set) {
+        occupiedLocationsSet.forEach(loc => addOccupiedLoc(loc));
+    }
+
+    return occupied;
+}
+
+// 🟢 ฟังก์ชันคำนวณหาช่องย่อยที่ว่างอัตโนมัติ เจาะจงตาม [แถว - ล็อก - ชั้น] ที่เลือก
+function calculateNextAvailableSlotInShelf(aisleName, bayName, shelfName) {
+    const aisle = (aisleName || '').trim().toUpperCase();
+    const bayNum = parseInt(bayName, 10) || 1;
+    const shelfNum = parseInt(shelfName, 10) || 1;
+    const pad2 = (num) => String(num).padStart(2, '0');
+    const bayStr = pad2(bayNum);
+    const shelfStr = pad2(shelfNum);
+
+    if (!aisle || ['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(aisle)) {
+        return { isFull: false, location: aisle, bay: '00', shelf: '00', slot: '00', freeSlots: 0, occupiedCount: 0, shelfCapacity: 0 };
+    }
+
+    const cfg = getAisleConfig(aisle);
+    const totalSlotsPerShelf = parseInt(cfg.slots || cfg.slot, 10) || 10;
+    const occupied = getAllOccupiedLocationsSet();
+
+    let shelfOccupiedCount = 0;
+    let targetSlot = 0;
+    let foundAvailable = false;
+
+    for (let sl = 1; sl <= totalSlotsPerShelf; sl++) {
+        const slStr = pad2(sl);
+        const candNorm = `${aisle}-${bayStr}-${shelfStr}-${slStr}`;
+        const candStandard = `${aisle}-${bayStr}-${shelfNum}-${slStr}`;
+        const candRaw = `${aisle}-${bayNum}-${shelfNum}-${sl}`;
+
+        const isOccupied = occupied.has(candNorm) || occupied.has(candStandard) || occupied.has(candRaw) || occupied.has(getNormalizedLocKey(candNorm));
+
+        if (isOccupied) {
+            shelfOccupiedCount++;
+        } else if (!foundAvailable) {
+            targetSlot = sl;
+            foundAvailable = true;
+        }
+    }
+
+    const freeSlots = Math.max(0, totalSlotsPerShelf - shelfOccupiedCount);
+
+    if (!foundAvailable || freeSlots === 0) {
+        return {
+            isFull: true,
+            location: `${aisle}-${bayStr}-${shelfStr}-FULL`,
+            bay: bayStr,
+            shelf: shelfStr,
+            slot: '00',
+            shelfCapacity: totalSlotsPerShelf,
+            occupiedCount: shelfOccupiedCount,
+            freeSlots: 0
+        };
+    }
+
+    return {
+        isFull: false,
+        location: `${aisle}-${bayStr}-${shelfStr}-${pad2(targetSlot)}`,
+        bay: bayStr,
+        shelf: shelfStr,
+        slot: pad2(targetSlot),
+        shelfCapacity: totalSlotsPerShelf,
+        occupiedCount: shelfOccupiedCount,
+        freeSlots: freeSlots
+    };
+}
+
+// 🟢 ฟังก์ชันคำนวณหาชั้นและช่องว่างถัดไปใน [แถว - ล็อก] ที่เลือก
+function calculateNextAvailableSlotInBay(aisleName, bayName) {
+    const aisle = (aisleName || '').trim().toUpperCase();
+    const bayNum = parseInt(bayName, 10) || 1;
+    const pad2 = (num) => String(num).padStart(2, '0');
+    const bayStr = pad2(bayNum);
+
+    if (!aisle || ['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(aisle)) {
+        return { isFull: false, location: aisle, bay: '00', shelf: '00', slot: '00', bayCapacity: 0, freeSlots: 0, occupiedCount: 0 };
+    }
+
+    const cfg = getAisleConfig(aisle);
+    const totalShelves = parseInt(cfg.shelves || cfg.shelf, 10) || 1;
+    const totalSlotsPerShelf = parseInt(cfg.slots || cfg.slot, 10) || 10;
+    const bayCapacity = totalShelves * totalSlotsPerShelf;
+    const occupied = getAllOccupiedLocationsSet();
+
+    let bayOccupiedCount = 0;
+    let targetShelf = 0;
+    let targetSlot = 0;
+    let foundAvailable = false;
+
+    for (let s = 1; s <= totalShelves; s++) {
+        for (let sl = 1; sl <= totalSlotsPerShelf; sl++) {
+            const slStr = pad2(sl);
+            const sStr = pad2(s);
+            const candNorm = `${aisle}-${bayStr}-${sStr}-${slStr}`;
+            const candStandard = `${aisle}-${bayStr}-${s}-${slStr}`;
+            const candRaw = `${aisle}-${bayNum}-${s}-${sl}`;
+
+            const isOccupied = occupied.has(candNorm) || occupied.has(candStandard) || occupied.has(candRaw) || occupied.has(getNormalizedLocKey(candNorm));
+
+            if (isOccupied) {
+                bayOccupiedCount++;
+            } else if (!foundAvailable) {
+                targetShelf = s;
+                targetSlot = sl;
+                foundAvailable = true;
+            }
+        }
+    }
+
+    const freeSlots = Math.max(0, bayCapacity - bayOccupiedCount);
+
+    if (!foundAvailable || freeSlots === 0) {
+        return {
+            isFull: true,
+            location: `${aisle}-${bayStr}-FULL`,
+            bay: bayStr,
+            shelf: '00',
+            slot: '00',
+            bayCapacity: bayCapacity,
+            occupiedCount: bayOccupiedCount,
+            freeSlots: 0
+        };
+    }
+
+    return {
+        isFull: false,
+        location: `${aisle}-${bayStr}-${pad2(targetShelf)}-${pad2(targetSlot)}`,
+        bay: bayStr,
+        shelf: pad2(targetShelf),
+        slot: pad2(targetSlot),
+        bayCapacity: bayCapacity,
+        occupiedCount: bayOccupiedCount,
+        freeSlots: freeSlots
+    };
+}
+
+// 🟢 ฟังก์ชันคำนวณภาพรวมความจุทั้งแถว
+function calculateAisleCapacityAndNextSlot(aisleName) {
+    const aisle = (aisleName || '').trim().toUpperCase();
+    if (!aisle) {
+        return { location: 'DOCK', bay: 0, shelf: 0, slot: 0, totalSlots: 0, occupiedCount: 0, freeSlots: 0 };
+    }
+
+    const specialLocations = ['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'];
+    if (specialLocations.includes(aisle)) {
+        return { location: aisle, bay: 0, shelf: 0, slot: 0, totalSlots: 0, occupiedCount: 0, freeSlots: 0 };
+    }
+
+    const cfg = getAisleConfig(aisle);
+
+    const totalBays = parseInt(cfg.bays || cfg.bay, 10) || 10;
+    const totalShelves = parseInt(cfg.shelves || cfg.shelf, 10) || 1;
+    const totalSlotsPerShelf = parseInt(cfg.slots || cfg.slot, 10) || 10;
+    const totalCapacity = totalBays * totalShelves * totalSlotsPerShelf;
+
+    const occupied = getAllOccupiedLocationsSet();
+
+    let aisleOccupiedCount = 0;
+    const inventory = (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) ? globalInventoryData : [];
+    inventory.forEach(item => {
+        if (item && item.location && (item.status !== 'OUT' && item.status !== 'DISPATCHED' && item.status !== 'ISSUED' && !item.is_deleted && item.qty !== 0)) {
+            let p = (typeof window.parseLocationComponents === 'function') ? window.parseLocationComponents(item.location) : null;
+            if (p && p.aisle && p.aisle.toUpperCase() === aisle) {
+                aisleOccupiedCount++;
+            }
+        }
+    });
+
+    const freeSlots = Math.max(0, totalCapacity - aisleOccupiedCount);
+    const pad2 = (num) => String(num).padStart(2, '0');
+
+    let nextLocation = `${aisle}-FULL`;
+    let targetBay = 0, targetShelf = 0, targetSlot = 0;
+    let found = false;
+
+    for (let b = 1; b <= totalBays; b++) {
+        for (let s = 1; s <= totalShelves; s++) {
+            for (let sl = 1; sl <= totalSlotsPerShelf; sl++) {
+                const bStr = pad2(b);
+                const sStr = pad2(s);
+                const slStr = pad2(sl);
+                const candNorm = `${aisle}-${bStr}-${sStr}-${slStr}`;
+                const candStandard = `${aisle}-${bStr}-${s}-${slStr}`;
+
+                if (!occupied.has(candNorm) && !occupied.has(candStandard) && !occupied.has(getNormalizedLocKey(candNorm))) {
+                    nextLocation = candNorm;
+                    targetBay = b;
+                    targetShelf = s;
+                    targetSlot = sl;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+        if (found) break;
+    }
+
+    return {
+        location: nextLocation,
+        bay: targetBay,
+        shelf: targetShelf,
+        slot: targetSlot,
+        totalSlots: totalCapacity,
+        occupiedCount: aisleOccupiedCount,
+        freeSlots: freeSlots,
+        baysConfigured: totalBays,
+        shelvesConfigured: totalShelves,
+        slotsConfigured: totalSlotsPerShelf
+    };
+}
+
+// 🟢 ฟังก์ชันสร้างตัวเลือกใน Dropdown ช่องย่อย ตรวจจับซีเรียลในคลังจริงและเลือกช่องว่างถัดไปให้อัตโนมัติ
+function populateInboundSlotDropdown(aisle, bay, shelf) {
+    const slotSelect = document.getElementById('inboundSlotSelect');
+    if (!slotSelect) return '01';
+
+    const cfg = getAisleConfig(aisle);
+    const totalSlots = parseInt(cfg.slots || cfg.slot, 10) || 10;
+    const occupied = getAllOccupiedLocationsSet();
+    const pad2 = (n) => String(n).padStart(2, '0');
+
+    let slotHtml = '';
+    let autoSelectedSlot = '';
+
+    const bayStr = pad2(bay);
+    const shelfNum = parseInt(shelf, 10) || 1;
+    const shelfStr = pad2(shelfNum);
+
+    for (let sl = 1; sl <= totalSlots; sl++) {
+        const slStr = pad2(sl);
+        const candNorm = `${aisle}-${bayStr}-${shelfStr}-${slStr}`;
+        const candStandard = `${aisle}-${bayStr}-${shelfNum}-${slStr}`;
+        const candRaw = `${aisle}-${parseInt(bay, 10)}-${shelfNum}-${sl}`;
+
+        const isOccupied = occupied.has(candNorm) || occupied.has(candStandard) || occupied.has(candRaw) || occupied.has(getNormalizedLocKey(candNorm));
+
+        if (isOccupied) {
+            const item = getOccupyingSnDetails(candNorm);
+            const snLabel = item && item.sn ? ` - SN: ${item.sn}` : '';
+            slotHtml += `<option value="${slStr}" disabled style="color:#ef4444; background:#fef2f2;">🔴 ช่อง ${slStr} (ไม่ว่าง${snLabel})</option>`;
+        } else {
+            if (!autoSelectedSlot) {
+                autoSelectedSlot = slStr;
+            }
+            slotHtml += `<option value="${slStr}">🟢 ช่อง ${slStr} (ว่าง)</option>`;
+        }
+    }
+
+    slotSelect.innerHTML = slotHtml;
+
+    if (autoSelectedSlot) {
+        slotSelect.value = autoSelectedSlot;
+    } else if (slotSelect.options.length > 0) {
+        slotSelect.value = slotSelect.options[0].value;
+    }
+
+    return autoSelectedSlot;
+}
+
+// 🟢 [อัปเดตใหม่ 100%] เติมตัวเลือก Dropdown และรักษาสถานะล็อกที่เลือกไว้ หากล็อกเต็มจะตัดไปเลือกล็อกถัดไปให้อัตโนมัติ
+function populateInboundLocationDropdowns(aisleName, keepBay = null) {
+    const aisle = (aisleName || 'A').trim().toUpperCase();
+    const baySelect = document.getElementById('inboundBaySelect');
+    const shelfSelect = document.getElementById('inboundShelfSelect');
+    const slotSelect = document.getElementById('inboundSlotSelect');
+
+    if (!baySelect || !shelfSelect || !slotSelect) return;
+
+    let currentSelectedBay = '01';
+    if (typeof keepBay === 'string' && keepBay && keepBay !== '00') {
+        currentSelectedBay = keepBay;
+    } else if (baySelect.value && baySelect.value !== '00') {
+        currentSelectedBay = baySelect.value;
+    }
+
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(aisle)) {
+        baySelect.innerHTML = `<option value="00">00 (พิเศษ)</option>`;
+        shelfSelect.innerHTML = `<option value="00">00 (พิเศษ)</option>`;
+        slotSelect.innerHTML = `<option value="00">00 (พิเศษ)</option>`;
+        baySelect.disabled = true;
+        shelfSelect.disabled = true;
+        slotSelect.disabled = true;
+        updateInboundLocationPreviewFromDropdowns();
+        return;
+    }
+
+    baySelect.disabled = false;
+    shelfSelect.disabled = false;
+    slotSelect.disabled = false;
+
+    const cfg = getAisleConfig(aisle);
+    const totalBays = parseInt(cfg.bays || cfg.bay, 10) || 10;
+    const totalShelves = parseInt(cfg.shelves || cfg.shelf, 10) || 1;
+
+    let bayHtml = '';
+    for (let b = 1; b <= totalBays; b++) {
+        const bStr = String(b).padStart(2, '0');
+        bayHtml += `<option value="${bStr}">ล็อก ${bStr}</option>`;
+    }
+    baySelect.innerHTML = bayHtml;
+
+    let shelfHtml = '';
+    for (let s = 1; s <= totalShelves; s++) {
+        const sStr = String(s).padStart(2, '0');
+        shelfHtml += `<option value="${sStr}">ชั้น ${sStr}</option>`;
+    }
+    shelfSelect.innerHTML = shelfHtml;
+
+    // 🟢 ตรวจสอบความจุช่องว่างในล็อกที่เลือก
+    let targetBayStr = String(currentSelectedBay).padStart(2, '0');
+    let resBay = calculateNextAvailableSlotInBay(aisle, targetBayStr);
+
+    // 🟢 หากล็อกที่เลือกอยู่เต็มทุกช่องแล้ว ให้ค้นหาและตัดไปเลือกล็อกถัดไปให้อัตโนมัติ
+    if (resBay.isFull) {
+        let foundNewBay = false;
+        const startBayNum = parseInt(targetBayStr, 10) || 1;
+
+        for (let bOffset = 1; bOffset < totalBays; bOffset++) {
+            let testBayNum = ((startBayNum - 1 + bOffset) % totalBays) + 1;
+            let testBayStr = String(testBayNum).padStart(2, '0');
+            let testRes = calculateNextAvailableSlotInBay(aisle, testBayStr);
+
+            if (!testRes.isFull) {
+                targetBayStr = testBayStr;
+                resBay = testRes;
+                foundNewBay = true;
+                if (typeof showToast === 'function') {
+                    showToast(`🚨 ล็อก ${currentSelectedBay} เต็มแล้ว! ระบบตัดไปที่ล็อก ${targetBayStr} ให้อัตโนมัติ`, true);
+                }
+                break;
+            }
+        }
+
+        if (!foundNewBay) {
+            if (typeof playErrorSound === 'function') playErrorSound();
+            if (typeof showToast === 'function') {
+                showToast(`🚨 แถว ${aisle} เต็มทุกล็อกแล้ว! กรุณาเลือกแถวจัดเก็บอื่น`, true);
+            }
+        }
+    }
+
+    baySelect.value = targetBayStr;
+
+    if (!resBay.isFull) {
+        shelfSelect.value = resBay.shelf;
+        populateInboundSlotDropdown(aisle, targetBayStr, resBay.shelf);
+    } else {
+        populateInboundSlotDropdown(aisle, targetBayStr, shelfSelect.value || '01');
+    }
+
+    updateInboundLocationPreviewFromDropdowns();
+}
+
+// 🟢 เมื่อผู้ใช้เลือกล็อก (Bay) เอง -> คำนวณหาชั้นและช่องย่อยที่ว่างในล็อกนั้นให้อัตโนมัติ
+function onInboundBayChange(bayValue) {
+    const aisleSelect = document.getElementById('inboundAisleSelect');
+    const baySelect = document.getElementById('inboundBaySelect');
+    const shelfSelect = document.getElementById('inboundShelfSelect');
+
+    const currentAisle = aisleSelect ? aisleSelect.value : 'A';
+    const currentBay = bayValue || (baySelect ? baySelect.value : '01');
+
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(currentAisle)) return;
+
+    const res = calculateNextAvailableSlotInBay(currentAisle, currentBay);
+
+    if (res.isFull) {
+        if (typeof playErrorSound === 'function') playErrorSound();
+        if (typeof showToast === 'function') {
+            showToast(`🚨 ล็อก ${res.bay} ในแถว ${currentAisle} เต็มทุกช่องแล้ว!`, true);
+        }
+        populateInboundSlotDropdown(currentAisle, currentBay, shelfSelect ? shelfSelect.value : '01');
+    } else {
+        if (shelfSelect) shelfSelect.value = res.shelf;
+        const selectedSlot = populateInboundSlotDropdown(currentAisle, currentBay, res.shelf);
+
+        if (typeof showToast === 'function') {
+            showToast(`📍 แถว ${currentAisle} ล็อก ${res.bay}: คำนวณเลือกช่องว่าง [ชั้น ${res.shelf} ช่อง ${selectedSlot}] ให้อัตโนมัติ`);
+        }
+    }
+
+    updateInboundLocationPreviewFromDropdowns();
+}
+
+// 🟢 เมื่อผู้ใช้เลือกชั้น (Shelf) -> คำนวณหาช่องย่อยที่ว่างในชั้นนั้นให้อัตโนมัติ 100%
+function onInboundShelfChange(shelfValue) {
+    const aisleSelect = document.getElementById('inboundAisleSelect');
+    const baySelect = document.getElementById('inboundBaySelect');
+    const shelfSelect = document.getElementById('inboundShelfSelect');
+
+    const currentAisle = aisleSelect ? aisleSelect.value : 'A';
+    const currentBay = baySelect ? baySelect.value : '01';
+    const currentShelf = shelfValue || (shelfSelect ? shelfSelect.value : '01');
+
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(currentAisle)) return;
+
+    const res = calculateNextAvailableSlotInShelf(currentAisle, currentBay, currentShelf);
+    const selectedSlot = populateInboundSlotDropdown(currentAisle, currentBay, currentShelf);
+
+    if (res.isFull) {
+        if (typeof playErrorSound === 'function') playErrorSound();
+        if (typeof showToast === 'function') {
+            showToast(`🚨 แถว ${currentAisle} ล็อก ${currentBay} ชั้น ${currentShelf} เต็มทุกช่องแล้ว!`, true);
+        }
+    } else {
+        if (typeof showToast === 'function') {
+            showToast(`📍 แถว ${currentAisle} ล็อก ${currentBay} ชั้น ${currentShelf}: คำนวณช่องว่างเป็น [ช่อง ${selectedSlot}] ให้อัตโนมัติ`);
+        }
+    }
+
+    updateInboundLocationPreviewFromDropdowns();
+}
+
+// 🟢 เมื่อผู้ใช้เลือกช่องย่อย (Slot) ด้วยตัวเอง -> ตรวจสอบว่าพิกัดนั้นมี S/N สินค้าเดิมอยู่แล้วหรือไม่
+function onInboundSlotChange(slotValue) {
+    const aisleSelect = document.getElementById('inboundAisleSelect');
+    const baySelect = document.getElementById('inboundBaySelect');
+    const shelfSelect = document.getElementById('inboundShelfSelect');
+    const slotSelect = document.getElementById('inboundSlotSelect');
+
+    const currentAisle = aisleSelect ? aisleSelect.value : 'A';
+    const currentBay = baySelect ? baySelect.value : '01';
+    const currentShelf = shelfSelect ? shelfSelect.value : '01';
+    const currentSlot = slotValue || (slotSelect ? slotSelect.value : '01');
+
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(currentAisle)) return;
+
+    const formattedLoc = `${currentAisle}-${currentBay}-${currentShelf}-${currentSlot}`;
+    const occupied = getAllOccupiedLocationsSet();
+
+    if (occupied.has(formattedLoc) || occupied.has(getNormalizedLocKey(formattedLoc))) {
+        if (typeof playErrorSound === 'function') playErrorSound();
+        
+        const occupyingItem = getOccupyingSnDetails(formattedLoc);
+        const occupyingSn = occupyingItem ? occupyingItem.sn : '';
+        const snText = occupyingSn ? ` (มี S/N: ${occupyingSn})` : '';
+
+        if (typeof showToast === 'function') {
+            showToast(`🚨 พิกัด ${formattedLoc} ไม่ว่าง!${snText} ระบบจะปรับไปช่องว่างให้อัตโนมัติ`, true);
+        }
+
+        const autoSlot = populateInboundSlotDropdown(currentAisle, currentBay, currentShelf);
+        if (slotSelect) slotSelect.value = autoSlot;
+    }
+
+    updateInboundLocationPreviewFromDropdowns();
+}
+
+// 🟢 อัปเดต Preview พิกัดจัดเก็บสินค้า และกล่องรายละเอียด UI
+function updateInboundLocationPreviewFromDropdowns() {
+    const aisleSelect = document.getElementById('inboundAisleSelect');
+    const baySelect = document.getElementById('inboundBaySelect');
+    const shelfSelect = document.getElementById('inboundShelfSelect');
+    const slotSelect = document.getElementById('inboundSlotSelect');
+
+    const aisle = aisleSelect ? aisleSelect.value : 'A';
+    const previewElem = document.getElementById('inboundLocationPreview');
+    const hiddenLocInput = document.getElementById('inboundLocation');
+
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(aisle)) {
+        if (previewElem) previewElem.textContent = aisle;
+        if (hiddenLocInput) hiddenLocInput.value = aisle;
+        renderAisleSlotBreakdownUI(calculateAisleCapacityAndNextSlot(aisle));
+        return;
+    }
+
+    const bay = baySelect ? baySelect.value : '01';
+    const shelf = shelfSelect ? shelfSelect.value : '01';
+    const slot = slotSelect ? slotSelect.value : '01';
+
+    const formattedLoc = `${aisle}-${bay}-${shelf}-${slot}`;
+
+    if (previewElem) {
+        previewElem.textContent = formattedLoc;
+        previewElem.classList.remove('pulse-highlight');
+        void previewElem.offsetWidth;
+        previewElem.classList.add('pulse-highlight');
+    }
+    if (hiddenLocInput) hiddenLocInput.value = formattedLoc;
+
+    const details = calculateAisleCapacityAndNextSlot(aisle);
+    details.bay = parseInt(bay, 10);
+    details.shelf = parseInt(shelf, 10);
+    details.slot = parseInt(slot, 10);
+    details.location = formattedLoc;
+
+    renderAisleSlotBreakdownUI(details);
+}
+
+// 🟢 เมื่อเปลี่ยนการเลือกแถว -> คำนวณพิกัดพร้อมสร้างตัวเลือก Dropdown ย่อยทันที
+function onInboundAisleChange(aisleValue) {
+    const aisleSelect = document.getElementById('inboundAisleSelect');
+    const currentAisle = aisleValue || (aisleSelect ? aisleSelect.value : '');
+    populateInboundLocationDropdowns(currentAisle, '01');
+    const hiddenLoc = document.getElementById('inboundLocation');
+    return hiddenLoc ? hiddenLoc.value : currentAisle;
+}
+
+// 🟢 ฟังก์ชันเรนเดอร์กล่องรายละเอียด ล็อก/ชั้น/ช่อง พร้อม Visual Progress Bar
+function renderAisleSlotBreakdownUI(details) {
+    let infoContainer = document.getElementById('inboundAisleSlotDetailBox');
+    
+    if (!infoContainer) {
+        const previewElem = document.getElementById('inboundLocationPreview');
+        if (previewElem && previewElem.parentElement) {
+            infoContainer = document.createElement('div');
+            infoContainer.id = 'inboundAisleSlotDetailBox';
+            infoContainer.style.cssText = `
+                margin-top: 10px;
+                padding: 12px;
+                background: var(--bg-card, #ffffff);
+                border: 1px solid var(--border-color, #e2e8f0);
+                border-radius: 10px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+                font-size: 0.83rem;
+            `;
+            previewElem.parentElement.appendChild(infoContainer);
+        } else {
+            return;
+        }
+    }
+
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(details.location)) {
+        infoContainer.innerHTML = `
+            <div style="text-align:center; color:var(--primary-text); font-weight:600; padding:4px;">
+                📍 พิกัดพิเศษ: <strong>${details.location}</strong> (ไม่ต้องเลือกแถว/ชั้น/ช่อง)
+            </div>
+        `;
+        return;
+    }
+
+    if (details.location.endsWith('-FULL')) {
+        infoContainer.innerHTML = `
+            <div style="text-align:center; color:var(--danger, #ef4444); font-weight:700; padding:6px;">
+                ⚠️ ล็อก/แถวนี้เต็มแล้ว! (ใช้ไป ${details.occupiedCount}/${details.totalSlots} ช่อง) กรุณาเลือกล็อกหรือแถวอื่น
+            </div>
+        `;
+        return;
+    }
+
+    const usedPercent = details.totalSlots > 0 ? Math.round((details.occupiedCount / details.totalSlots) * 100) : 0;
+    const progressColor = usedPercent > 85 ? '#ef4444' : (usedPercent > 60 ? '#f59e0b' : '#10b981');
+
+    infoContainer.innerHTML = `
+        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; text-align:center; margin-bottom:10px;">
+            <div style="background:var(--primary-light, #e0f2fe); padding:6px 4px; border-radius:6px;">
+                <span style="font-size:0.7rem; color:var(--text-sub); display:block;">ล็อกที่เลือก</span>
+                <strong style="font-size:0.95rem; color:var(--primary-text);" class="mono">ล็อก ${String(details.bay).padStart(2, '0')}</strong>
+                <span style="font-size:0.65rem; color:var(--text-muted); display:block;">(จาก ${details.baysConfigured})</span>
+            </div>
+            <div style="background:var(--primary-light, #e0f2fe); padding:6px 4px; border-radius:6px;">
+                <span style="font-size:0.7rem; color:var(--text-sub); display:block;">ชั้นที่เลือก</span>
+                <strong style="font-size:0.95rem; color:var(--primary-text);" class="mono">ชั้น ${String(details.shelf).padStart(2, '0')}</strong>
+                <span style="font-size:0.65rem; color:var(--text-muted); display:block;">(จาก ${details.shelvesConfigured})</span>
+            </div>
+            <div style="background:var(--primary-light, #e0f2fe); padding:6px 4px; border-radius:6px;">
+                <span style="font-size:0.7rem; color:var(--text-sub); display:block;">ช่องว่าง Auto</span>
+                <strong style="font-size:0.95rem; color:#10b981;" class="mono">ช่อง ${String(details.slot).padStart(2, '0')}</strong>
+                <span style="font-size:0.65rem; color:var(--text-muted); display:block;">(จาก ${details.slotsConfigured})</span>
+            </div>
+        </div>
+
+        <div style="margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.73rem; color:var(--text-sub); margin-bottom:3px;">
+                <span>อัตราการจัดเก็บของแถวนี้:</span>
+                <strong style="color:${progressColor}">${usedPercent}% (${details.occupiedCount}/${details.totalSlots})</strong>
+            </div>
+            <div style="width:100%; height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden;">
+                <div style="width:${usedPercent}%; height:100%; background:${progressColor}; transition:width 0.3s ease;"></div>
+            </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--text-sub); border-top:1px dashed var(--border-color); padding-top:8px; margin-top:4px;">
+            <span>🟢 ช่องว่างคงเหลือ: <strong style="color:var(--success, #10b981);" class="mono">${details.freeSlots}</strong> / ${details.totalSlots} ช่อง</span>
+            <button type="button" class="btn btn-sm" onclick="triggerAutoFindNextSlot()" style="font-size:0.7rem; padding:2px 8px; background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); border:1px solid rgba(2, 132, 199, 0.3); border-radius:5px; cursor:pointer;" title="ค้นหาและสุ่มช่องว่างถัดไปให้อัตโนมัติ">
+                ⚡ หาช่องว่างถัดไป
+            </button>
+        </div>
+    `;
+}
+
+// 🟢 ฟังก์ชันปุ่มกดเลือกพิกัดว่างถัดไปให้อัตโนมัติ
+function triggerAutoFindNextSlot() {
+    autoSelectNextAvailableSlotAfterInbound();
+    if (typeof showToast === 'function') {
+        showToast('⚡ คำนวณและเลือกพิกัดว่างถัดไปให้อัตโนมัติเรียบร้อย');
+    }
+}
+
+// 🟢 [อัปเดตใหม่ 100%] ปรับเลือกพิกัดว่างถัดไปในล็อกเดิมคงไว้ก่อน หากล็อกเดิมเต็มจึงตัดไปล็อกถัดไปให้อัตโนมัติ
+function autoSelectNextAvailableSlotAfterInbound() {
+    const aisleSelect = document.getElementById('inboundAisleSelect');
+    const baySelect = document.getElementById('inboundBaySelect');
+
+    const currentAisle = aisleSelect ? aisleSelect.value : 'A';
+    const currentBay = baySelect ? baySelect.value : '01';
+
+    // ส่ง currentBay เข้าไปเพื่อคงล็อกเดิมของผู้ใช้ไว้
+    populateInboundLocationDropdowns(currentAisle, currentBay);
+}
+
+// 🟢 ระบบบันทึกการรับเข้าสินค้า (บันทึกชื่อ-นามสกุล User ที่เข้าระบบ ณ ตอนนั้นกำกับลง Real-time 100%)
 async function handleInboundSubmit(e) {
     if (e) e.preventDefault();
+    if (fastScanLock) return;
 
     const snInput = document.getElementById('inboundSn');
     if (!snInput) return;
 
     const sn = snInput.value.trim();
-    const categoryElem = document.getElementById('inboundCategory');
-    const nameElem = document.getElementById('inboundName');
-    const meterElem = document.getElementById('inboundMeter');
-    const locationElem = document.getElementById('inboundLocationPreview');
+    const category = (document.getElementById('inboundCategory')?.value || '').trim();
+    const name = (document.getElementById('inboundName')?.value || '').trim();
+    const meterVal = parseInt(document.getElementById('inboundMeter')?.value) || 0;
+    
+    let locationElem = document.getElementById('inboundLocationPreview');
+    let location = locationElem ? locationElem.textContent.trim() : 'DOCK';
 
-    const category = categoryElem ? categoryElem.value.trim() : '';
-    const name = nameElem ? nameElem.value.trim() : '';
-    const meterVal = meterElem ? (parseInt(meterElem.value) || 0) : 0;
-    const location = locationElem ? locationElem.textContent : 'DOCK';
-
-    if (!sn) return;
-    if (!category || !name) {
-        if (typeof playErrorSound === 'function') playErrorSound();
-        if (typeof showToast === 'function') showToast('⚠️ กรุณาเลือก/กรอก SKU และชื่อรุ่นก่อนสแกน S/N', true);
+    if (!sn) {
+        snInput.focus();
         return;
     }
 
-    if ((typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData) && globalInventoryData.some(i => String(i.sn).toLowerCase() === sn.toLowerCase())) || (typeof isPendingSn === 'function' && isPendingSn(sn))) {
+    if (!category || !name) {
+        if (typeof playErrorSound === 'function') playErrorSound();
+        if (typeof showToast === 'function') showToast('⚠️ กรุณาเลือก/กรอก SKU และชื่อรุ่นก่อนสแกน S/N', true);
+        snInput.select();
+        return;
+    }
+
+    // ตรวจสอบ S/N ซ้ำในระบบ
+    const isDuplicateSn = (typeof globalInventoryData !== 'undefined' && globalInventoryData.some(i => String(i.sn).toLowerCase() === sn.toLowerCase())) ||
+                          (typeof isPendingSn === 'function' && isPendingSn(sn));
+
+    if (isDuplicateSn) {
         if (typeof playErrorSound === 'function') playErrorSound();
         if (typeof showToast === 'function') showToast(`🚨 S/N "${escapeHTML(sn)}" มีอยู่ในระบบสต็อกแล้ว!`, true);
         snInput.select();
         return;
     }
 
-    if (location !== 'DOCK' && location !== 'OFFICE' && location !== 'PENDING') {
-        if (typeof occupiedLocationsSet !== 'undefined' && occupiedLocationsSet.has(location.toUpperCase())) {
-            if (typeof playErrorSound === 'function') playErrorSound();
-            if (typeof showToast === 'function') showToast(`⛔ พิกัด ${escapeHTML(location)} มีสินค้าจัดเก็บอยู่แล้ว! ระบบกำลังปรับเลือกพิกัดใหม่ให้อัตโนมัติ`, true);
-            if (typeof autoSelectNextAvailableSlotAfterInbound === 'function') autoSelectNextAvailableSlotAfterInbound();
+    // ป้องกันพิกัดซ้ำกันแบบ Real-time (1 พิกัดต่อ 1 SN)
+    const isSpecialLoc = ['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(location.toUpperCase());
+    const normLocation = getNormalizedLocKey(location);
+    const occupied = getAllOccupiedLocationsSet();
+
+    if (!isSpecialLoc && (occupied.has(location) || occupied.has(normLocation) || location.endsWith('-FULL'))) {
+        if (typeof playErrorSound === 'function') playErrorSound();
+        if (typeof showToast === 'function') showToast(`⛔ พิกัด ${location} ไม่พร้อมใช้งาน/มีสินค้าอยู่แล้ว! กำลังหาพิกัดว่างให้อัตโนมัติ`, true);
+        autoSelectNextAvailableSlotAfterInbound();
+        
+        let newLocationElem = document.getElementById('inboundLocationPreview');
+        location = newLocationElem ? newLocationElem.textContent.trim() : 'DOCK';
+
+        if (location.endsWith('-FULL')) {
+            if (typeof showToast === 'function') showToast(`⚠️ แถวนี้เต็มแล้ว! กรุณาเลือกแถวจัดเก็บอื่น`, true);
             return;
         }
     }
 
-    const rawPayload = { category, name, sn, meter: meterVal, location, qty: 1, created_at: new Date().toISOString() };
+    fastScanLock = true;
+
+    // 🟢 ดึงชื่อ-นามสกุลของผู้ใช้งานที่เข้าสู่ระบบ ณ ขณะนั้น
+    const activeUserFullName = getCurrentUserFullName();
+
+    // 🟢 บันทึกชื่อผู้ใช้งานลงใน receiver, created_by, received_by เพื่อให้หน้าผังพิกัดสินค้าและหน้าเช็คสต็อกรับค่าได้อย่างสมบูรณ์ 100%
+    const rawPayload = { 
+        category, 
+        name, 
+        sn, 
+        meter: meterVal, 
+        location, 
+        qty: 1, 
+        receiver: activeUserFullName,
+        created_by: activeUserFullName,
+        received_by: activeUserFullName,
+        created_at: new Date().toISOString() 
+    };
 
     snInput.value = '';
     snInput.focus();
 
+    if (typeof occupiedLocationsSet !== 'undefined') {
+        occupiedLocationsSet.add(location.toUpperCase());
+        occupiedLocationsSet.add(normLocation);
+    }
+
     if (typeof playSuccessSound === 'function') playSuccessSound();
-    if (typeof voiceSettings !== 'undefined' && voiceSettings.inboundVoice && typeof speakThaiText === 'function') {
+    if (window.voiceSettings && voiceSettings.inboundVoice && typeof speakThaiText === 'function') {
         speakThaiText(`รับสินค้าซีเรียล ${sn} เข้าพิกัด ${location} เรียบร้อยค่ะ`);
     }
 
-    if (navigator.onLine) {
+    if (navigator.vibrate) {
+        try { navigator.vibrate(60); } catch(err) {}
+    }
+
+    if (navigator.onLine && typeof _supabase !== 'undefined' && _supabase) {
         try {
-            const client = getSupabaseClient();
-            if (client && typeof sanitizeForDb === 'function') {
-                const cleanData = sanitizeForDb(rawPayload);
-                const { data, error } = await client.from('warehouse_items').insert([cleanData]).select();
+            const cleanData = typeof sanitizeForDb === 'function' ? sanitizeForDb(rawPayload) : rawPayload;
+            const { data, error } = await _supabase.from('warehouse_items').insert([cleanData]).select();
 
-                if (error) {
-                    if (error.code === '23505') {
-                        if (typeof playErrorSound === 'function') playErrorSound();
-                        if (typeof showToast === 'function') showToast(`🚨 S/N "${escapeHTML(sn)}" มีอยู่ในฐานข้อมูลแล้ว!`, true);
-                        return;
-                    } else {
-                        if (typeof playErrorSound === 'function') playErrorSound();
-                        if (typeof showToast === 'function') showToast(`⚠️ เกิดข้อผิดพลาดจากฐานข้อมูล`, true);
-                        
-                        rawPayload._pending = true;
-                        if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) globalInventoryData.unshift(rawPayload);
-                        if (typeof offlineInboundQueue !== 'undefined' && Array.isArray(offlineInboundQueue)) offlineInboundQueue.push(rawPayload);
-                        if (typeof persistQueue === 'function') persistQueue();
-
-                        recentInboundList.unshift({
-                            sn, category, name, meter: meterVal, location,
-                            time: new Date().toLocaleTimeString('th-TH'),
-                            isOffline: true
-                        });
-                    }
+            if (error) {
+                if (error.code === '23505') {
+                    if (typeof playErrorSound === 'function') playErrorSound();
+                    if (typeof showToast === 'function') showToast(`🚨 S/N "${escapeHTML(sn)}" มีอยู่ในฐานข้อมูล Supabase แล้ว!`, true);
                 } else {
-                    const insertedItem = (data && data[0]) ? data[0] : cleanData;
-                    if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) globalInventoryData.unshift(insertedItem);
+                    if (typeof playErrorSound === 'function') playErrorSound();
+                    if (typeof showToast === 'function') showToast(`⚠️ เกิดข้อผิดพลาดจาก DB: ${error.message}`, true);
+                    
+                    rawPayload._pending = true;
+                    if (typeof globalInventoryData !== 'undefined') globalInventoryData.unshift(rawPayload);
+                    if (typeof offlineInboundQueue !== 'undefined') offlineInboundQueue.push(rawPayload);
+                    if (typeof persistQueue === 'function') persistQueue();
 
                     recentInboundList.unshift({
                         sn, category, name, meter: meterVal, location,
+                        receiver: activeUserFullName,
+                        created_by: activeUserFullName,
                         time: new Date().toLocaleTimeString('th-TH'),
-                        isOffline: false
+                        isOffline: true
                     });
-                    if (recentInboundList.length > 100) recentInboundList.length = 100;
-
-                    if (typeof showToast === 'function') showToast(`✅ บันทึก S/N: ${escapeHTML(sn)} เข้าฐานข้อมูลเรียบร้อยแล้ว`);
                 }
             } else {
-                throw new Error("Supabase client not available");
+                const insertedItem = (data && data[0]) ? data[0] : cleanData;
+                if (typeof globalInventoryData !== 'undefined') globalInventoryData.unshift(insertedItem);
+
+                recentInboundList.unshift({
+                    sn, category, name, meter: meterVal, location,
+                    receiver: activeUserFullName,
+                    created_by: activeUserFullName,
+                    time: new Date().toLocaleTimeString('th-TH'),
+                    isOffline: false
+                });
+                if (recentInboundList.length > 100) recentInboundList.length = 100;
+
+                if (typeof showToast === 'function') showToast(`✅ บันทึก S/N: ${escapeHTML(sn)} เข้าคลัง [${location}] โดย ${activeUserFullName} สำเร็จ`);
             }
         } catch (err) {
             rawPayload._pending = true;
-            if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) globalInventoryData.unshift(rawPayload);
-            if (typeof offlineInboundQueue !== 'undefined' && Array.isArray(offlineInboundQueue)) offlineInboundQueue.push(rawPayload);
+            if (typeof globalInventoryData !== 'undefined') globalInventoryData.unshift(rawPayload);
+            if (typeof offlineInboundQueue !== 'undefined') offlineInboundQueue.push(rawPayload);
             if (typeof persistQueue === 'function') persistQueue();
 
             recentInboundList.unshift({
                 sn, category, name, meter: meterVal, location,
+                receiver: activeUserFullName,
+                created_by: activeUserFullName,
                 time: new Date().toLocaleTimeString('th-TH'),
                 isOffline: true
             });
@@ -136,12 +946,14 @@ async function handleInboundSubmit(e) {
         }
     } else {
         rawPayload._pending = true;
-        if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) globalInventoryData.unshift(rawPayload);
-        if (typeof offlineInboundQueue !== 'undefined' && Array.isArray(offlineInboundQueue)) offlineInboundQueue.push(rawPayload);
+        if (typeof globalInventoryData !== 'undefined') globalInventoryData.unshift(rawPayload);
+        if (typeof offlineInboundQueue !== 'undefined') offlineInboundQueue.push(rawPayload);
         if (typeof persistQueue === 'function') persistQueue();
 
         recentInboundList.unshift({
             sn, category, name, meter: meterVal, location,
+            receiver: activeUserFullName,
+            created_by: activeUserFullName,
             time: new Date().toLocaleTimeString('th-TH'),
             isOffline: true
         });
@@ -151,19 +963,20 @@ async function handleInboundSubmit(e) {
     if (typeof updateKPIs === 'function') updateKPIs();
     if (typeof filterInventoryData === 'function') filterInventoryData();
     if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
-    if (typeof autoSelectNextAvailableSlotAfterInbound === 'function') autoSelectNextAvailableSlotAfterInbound();
+    autoSelectNextAvailableSlotAfterInbound();
     renderLiveInboundFeed();
 
-    if (typeof logUserActivity === 'function') logUserActivity('INBOUND', `รับเข้าสินค้า [SKU: ${category}] ${name} เข้าพิกัด ${location}`, sn);
+    if (typeof logUserActivity === 'function') {
+        logUserActivity('INBOUND', `ผู้บันทึก [${activeUserFullName}] รับเข้าสินค้า [SKU: ${category}] ${name} เข้าพิกัด ${location}`, sn);
+    }
+
+    setTimeout(() => { fastScanLock = false; }, 80);
 }
 
 async function loadRecentInboundFeedFromDB() {
-    if (!navigator.onLine) return;
+    if (!navigator.onLine || typeof _supabase === 'undefined' || !_supabase) return;
     try {
-        const client = getSupabaseClient();
-        if (!client) return;
-
-        const { data, error } = await client
+        const { data, error } = await _supabase
             .from('warehouse_items')
             .select('*')
             .order('created_at', { ascending: false })
@@ -176,62 +989,115 @@ async function loadRecentInboundFeedFromDB() {
                 name: item.name || '-',
                 meter: item.meter || 0,
                 location: item.location || 'DOCK',
+                receiver: item.receiver || item.created_by || item.received_by || 'ไม่ระบุผู้บันทึก',
+                created_by: item.created_by || item.receiver || 'ไม่ระบุผู้บันทึก',
                 time: item.created_at ? new Date(item.created_at).toLocaleTimeString('th-TH') : '-',
                 isOffline: false
             }));
             renderLiveInboundFeed();
         }
-    } catch (e) {
-        // Safe Catch
-    }
+    } catch (e) {}
 }
 
+// 🟢 ปรับปรุง UI ประวัติรายการรับเข้าล่าสุด: แสดงชื่อ-นามสกุล User ผู้บันทึกรับเข้าแบบเรียลไทม์ 100%
 function renderLiveInboundFeed() {
     const container = document.getElementById('liveInboundFeedContainer');
-    if (!container || recentInboundList.length === 0) return;
+    if (!container) return;
 
-    let html = '';
+    if (recentInboundList.length === 0) {
+        container.innerHTML = `
+            <div style="padding:32px 16px; text-align:center; color:var(--text-muted); font-size:0.9rem;">
+                <i class="fa-solid fa-box-open" style="font-size:2.4rem; margin-bottom:8px; opacity:0.4;"></i><br/>
+                ยังไม่มีรายการรับเข้าสินค้าในเซสชันนี้
+            </div>`;
+        return;
+    }
+
+    const countElem = document.getElementById('recentInboundCountBadge');
+    if (countElem) countElem.textContent = `${recentInboundList.length} รายการ`;
+
+    let html = `
+        <div class="inbound-feed-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 2px;">
+            <span style="font-size:0.92rem; font-weight:700; color:var(--text-main);">ประวัติการรับเข้าล่าสุด (${recentInboundList.length})</span>
+            <button class="btn btn-sm btn-secondary" onclick="clearRecentInboundFeedView()" style="font-size:0.75rem; padding:3px 10px; border-radius:6px;" title="ล้างหน้าจอแสดงผล">
+                <i class="fa-solid fa-eraser"></i> เคลียร์หน้าจอ
+            </button>
+        </div>
+        <div class="inbound-feed-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
+    `;
+
     recentInboundList.forEach(item => {
+        const formatLoc = typeof formatLocationCode === 'function' ? formatLocationCode(item.location) : item.location;
+        const receiverName = escapeHTML(item.receiver || item.created_by || item.received_by || 'ไม่ระบุผู้บันทึก');
         const syncBadge = item.isOffline 
-            ? `<span class="badge-action delete" style="font-size:0.7rem;"><i class="fa-solid fa-wifi-slash"></i> รอนำเข้า DB</span>`
-            : `<span class="badge-action inbound" style="font-size:0.7rem;"><i class="fa-solid fa-circle-check"></i> บันทึก DB แล้ว</span>`;
+            ? `<span class="badge-action delete" style="font-size:0.7rem; padding:3px 8px; white-space:nowrap;"><i class="fa-solid fa-wifi-slash"></i> รอ Sync DB</span>`
+            : `<span class="badge-action inbound" style="font-size:0.7rem; padding:3px 8px; white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> บันทึก DB แล้ว</span>`;
 
         const cancelBtn = item.isOffline 
-            ? `<button class="btn btn-sm btn-danger" style="padding:2px 6px; font-size:0.7rem;" onclick="removePendingItemBySn('${escapeHTML(item.sn)}')" title="ยกเลิกการรออนุมัติ/บันทึก"><i class="fa-solid fa-xmark"></i> ลบคิว</button>` 
+            ? `<button class="btn btn-sm btn-danger" style="padding:3px 8px; font-size:0.7rem; flex-shrink:0;" onclick="removePendingItemBySn('${escapeHTML(item.sn)}')" title="ยกเลิกการรออนุมัติ"><i class="fa-solid fa-xmark"></i></button>` 
             : '';
 
         const feedClass = item.isOffline ? 'db-pending-warn' : 'db-synced-success';
-        const formattedLoc = typeof formatLocationCode === 'function' ? formatLocationCode(item.location) : item.location;
 
         html += `
-            <div class="feed-item ${feedClass}">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span class="mono font-bold" style="color:var(--text-main); font-size:0.9rem;">S/N: ${escapeHTML(item.sn)}</span>
-                    <div style="display:flex; gap:6px; align-items:center;">
+            <div class="feed-item ${feedClass}" style="border-radius:10px; padding:12px; background:var(--bg-card, #ffffff); border:1px solid var(--border-color, #e2e8f0); box-shadow:0 2px 6px rgba(0,0,0,0.03); display:flex; flex-direction:column; gap:8px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%;">
+                    <span class="mono font-bold" style="color:var(--text-main); font-size:0.95rem; display:flex; align-items:center; gap:6px;">
+                        S/N: ${escapeHTML(item.sn)}
+                        <i class="fa-regular fa-copy" style="cursor:pointer; font-size:0.78rem; color:var(--text-muted);" onclick="copyToClipboard('${escapeHTML(item.sn)}')" title="คัดลอก S/N"></i>
+                    </span>
+                    <div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">
                         ${syncBadge}
                         ${cancelBtn}
-                        <span class="badge-location mono" style="font-size:0.75rem;">📍 ${escapeHTML(formattedLoc)}</span>
                     </div>
                 </div>
-                <div class="text-multiline-truncate" style="font-size:0.8rem; color:var(--text-sub); font-weight:500;" title="[${escapeHTML(item.category)}] ${escapeHTML(item.name)}">
-                    [${escapeHTML(item.category)}] ${escapeHTML(item.name)}
+
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; background:var(--bg-body, #f8fafc); padding:6px 10px; border-radius:6px; border:1px solid var(--border-color, #e2e8f0); gap:6px;">
+                    <span style="font-size:0.78rem; color:var(--text-sub); font-weight:600; white-space:nowrap; margin-top:2px;">📍 พิกัด:</span>
+                    <span class="badge-location mono" style="font-size:0.83rem; font-weight:800; background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); padding:4px 10px; border-radius:6px; white-space:normal; word-break:break-word; line-height:1.35; border:1px solid rgba(2, 132, 199, 0.2); text-align:right;">
+                        📍 ${escapeHTML(formatLoc)}
+                    </span>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.75rem; color:var(--warning); font-weight:700; margin-top:2px;">
+
+                <div style="font-size:0.83rem; color:var(--text-sub); font-weight:500; line-height:1.3; word-break:break-word;" title="[${escapeHTML(item.category)}] ${escapeHTML(item.name)}">
+                    <strong style="color:var(--primary-text);">[${escapeHTML(item.category)}]</strong> ${escapeHTML(item.name)}
+                </div>
+
+                <div style="font-size:0.76rem; color:var(--text-sub); font-weight:600; display:flex; align-items:center; gap:4px;">
+                    <i class="fa-solid fa-user-check" style="color:var(--primary-text);"></i> ผู้บันทึก: <span style="color:var(--text-main); font-weight:700;">${receiverName}</span>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.76rem; color:var(--warning, #d97706); font-weight:700; border-top:1px dashed var(--border-color); padding-top:6px;">
                     <span><i class="fa-solid fa-gauge"></i> มิเตอร์: ${Number(item.meter || 0).toLocaleString()}</span>
-                    <span style="color:var(--text-muted); font-weight:400;">🕒 ${escapeHTML(item.time)} น.</span>
+                    <span style="color:var(--text-muted); font-weight:400;"><i class="fa-regular fa-clock"></i> ${escapeHTML(item.time)} น.</span>
                 </div>
             </div>
         `;
     });
+
+    html += `</div>`;
     container.innerHTML = html;
 }
 
-// 🟢 ค้นหาด่วนรหัสสินค้า SKU ค้นหาจาก Master Products ทั้งหมดในฐานข้อมูล DB 100%
+function clearRecentInboundFeedView() {
+    recentInboundList = [];
+    renderLiveInboundFeed();
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            if (typeof showToast === 'function') showToast(`📋 คัดลอก "${text}" เรียบร้อยแล้ว`);
+        });
+    }
+}
+
+// 🟢 ค้นหาด่วนรหัสสินค้า SKU จาก Master Products
 function onSkuSearchInput(val) {
     const box = document.getElementById('skuSuggestionsBox');
     if (!box) return;
 
-    if (!val || !val.trim()) {
+    if (!val.trim()) {
         box.style.display = 'none';
         return;
     }
@@ -239,10 +1105,10 @@ function onSkuSearchInput(val) {
     const query = val.toLowerCase().trim();
     const skuMap = new Map();
 
-    const masterList = (typeof globalMasterProducts !== 'undefined' && Array.isArray(globalMasterProducts)) ? globalMasterProducts : [];
-    const inventoryList = (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) ? globalInventoryData : [];
+    const masterList = (typeof globalMasterProducts !== 'undefined' ? globalMasterProducts : [])
+        .concat(typeof globalInventoryData !== 'undefined' ? globalInventoryData : []);
 
-    masterList.concat(inventoryList).forEach(item => {
+    masterList.forEach(item => {
         const skuKey = (item.sku || item.category || item.code || '').trim();
         const nameVal = (item.name || item.description || item.model || item.title || '').trim();
 
@@ -256,7 +1122,7 @@ function onSkuSearchInput(val) {
     const uniqueResults = Array.from(skuMap.values()).slice(0, 100);
 
     if (uniqueResults.length === 0) {
-        box.innerHTML = `<div style="padding:12px; text-align:center; color:var(--text-muted); font-size:0.85rem;">ไม่พบข้อมูล SKU / ชื่อรุ่น "${escapeHTML(val)}" ในฐานข้อมูล Master</div>`;
+        box.innerHTML = `<div style="padding:12px; text-align:center; color:var(--text-muted); font-size:0.85rem;">ไม่พบข้อมูล SKU / ชื่อรุ่น "${escapeHTML(val)}" ในฐานข้อมูล Master (${globalMasterProducts.length.toLocaleString()} รายการ)</div>`;
         box.style.display = 'block';
         return;
     }
@@ -264,7 +1130,7 @@ function onSkuSearchInput(val) {
     let html = '';
     uniqueResults.forEach(item => {
         html += `
-            <div class="suggestion-item" onclick="selectSkuSuggestion('${escapeHTML(item.sku)}', '${escapeHTML(item.name)}')">
+            <div class="suggestion-item" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border-color);" onclick="selectSkuSuggestion('${escapeHTML(item.sku)}', '${escapeHTML(item.name)}')">
                 <span class="mono font-bold" style="color:var(--primary-text);">${escapeHTML(item.sku)}</span>
                 <span style="color:var(--text-main); font-size:0.82rem; margin-left:10px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHTML(item.name)}</span>
             </div>
@@ -275,15 +1141,118 @@ function onSkuSearchInput(val) {
 }
 
 function selectSkuSuggestion(sku, name) {
-    const catElem = document.getElementById('inboundCategory');
+    const categoryElem = document.getElementById('inboundCategory');
     const nameElem = document.getElementById('inboundName');
-    const searchInput = document.getElementById('skuSearchInput');
+    const searchElem = document.getElementById('skuSearchInput');
     const box = document.getElementById('skuSuggestionsBox');
     const snInput = document.getElementById('inboundSn');
 
-    if (catElem) catElem.value = sku;
+    if (categoryElem) categoryElem.value = sku;
     if (nameElem) nameElem.value = name;
-    if (searchInput) searchInput.value = `${sku} - ${name}`;
+    if (searchElem) searchElem.value = `${sku} - ${name}`;
     if (box) box.style.display = 'none';
+
     if (snInput) snInput.focus();
 }
+
+// 🟢 เชื่อมต่อ Supabase Realtime รับข้อมูลสินค้า Master เมื่อมีการอัปเดต/เพิ่มใหม่ใน DB
+function initMasterProductsRealtime() {
+    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
+    if (!client) return;
+
+    try {
+        client
+            .channel('public_products_changes_inbound')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, async (payload) => {
+                if (typeof loadMasterProductsFromDB === 'function') {
+                    await loadMasterProductsFromDB();
+                    if (typeof showToast === 'function' && payload.eventType === 'INSERT') {
+                        showToast(`⚡ อัปเดตสินค้าใหม่จาก DB เรียบร้อยแล้ว (รวม ${globalMasterProducts.length.toLocaleString()} รายการ)`);
+                    }
+                }
+            })
+            .subscribe();
+    } catch (e) {}
+}
+
+// 🟢 ผูก Event Listeners ครบทั้ง แถว -> ล็อก -> ชั้น -> ช่องย่อย พร้อม Realtime Sync เชื่อมโยงกับ locations-db.js
+function initInboundEventListeners() {
+    const snInput = document.getElementById('inboundSn');
+    if (snInput) {
+        snInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleInboundSubmit(e);
+            }
+        });
+    }
+
+    const aisleSelect = document.getElementById('inboundAisleSelect');
+    if (aisleSelect) {
+        aisleSelect.addEventListener('change', function(e) {
+            onInboundAisleChange(e.target.value);
+        });
+    }
+
+    const baySelect = document.getElementById('inboundBaySelect');
+    if (baySelect) {
+        baySelect.addEventListener('change', function(e) {
+            onInboundBayChange(e.target.value);
+        });
+    }
+
+    const shelfSelect = document.getElementById('inboundShelfSelect');
+    if (shelfSelect) {
+        shelfSelect.addEventListener('change', function(e) {
+            onInboundShelfChange(e.target.value);
+        });
+    }
+
+    const slotSelect = document.getElementById('inboundSlotSelect');
+    if (slotSelect) {
+        slotSelect.addEventListener('change', function(e) {
+            onInboundSlotChange(e.target.value);
+        });
+    }
+
+    // 🟢 ซิงค์ Real-time ร่วมกับ locations-db.js เมื่อมีการอัปเดตสต็อกหรือคอนฟิกคลัง
+    ['inventoryUpdated', 'inventoryDataChanged', 'wmsRealtimeSync', 'warehouseConfigUpdated'].forEach(evtName => {
+        document.addEventListener(evtName, function() {
+            autoSelectNextAvailableSlotAfterInbound();
+        }, true);
+    });
+
+    window.addEventListener('storage', function(e) {
+        if (e.key === 'WMS_AISLE_CONFIGS' || e.key === 'WMS_INVENTORY_DATA') {
+            autoSelectNextAvailableSlotAfterInbound();
+        }
+    });
+
+    autoSelectNextAvailableSlotAfterInbound();
+    initMasterProductsRealtime();
+}
+
+// 🟢 บายพาสลง window Object เพื่อให้ส่วนอื่นๆ และหน้าอื่นๆ ในระบบ WMS นำไปเรียกใช้คำนวณพิกัดว่างได้ 100%
+if (typeof window !== 'undefined') {
+    window.getCurrentUserFullName = getCurrentUserFullName;
+    window.getAisleConfig = getAisleConfig;
+    window.getNormalizedLocKey = getNormalizedLocKey;
+    window.normalizeLocationStandard = normalizeLocationStandard;
+    window.getOccupyingSnDetails = getOccupyingSnDetails;
+    window.getAllOccupiedLocationsSet = getAllOccupiedLocationsSet;
+    window.calculateNextAvailableSlotInShelf = calculateNextAvailableSlotInShelf;
+    window.calculateNextAvailableSlotInBay = calculateNextAvailableSlotInBay;
+    window.calculateAisleCapacityAndNextSlot = calculateAisleCapacityAndNextSlot;
+    window.populateInboundSlotDropdown = populateInboundSlotDropdown;
+    window.populateInboundLocationDropdowns = populateInboundLocationDropdowns;
+    window.onInboundAisleChange = onInboundAisleChange;
+    window.onInboundBayChange = onInboundBayChange;
+    window.onInboundShelfChange = onInboundShelfChange;
+    window.onInboundSlotChange = onInboundSlotChange;
+    window.autoSelectNextAvailableSlotAfterInbound = autoSelectNextAvailableSlotAfterInbound;
+    window.triggerAutoFindNextSlot = triggerAutoFindNextSlot;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initInboundEventListeners();
+});

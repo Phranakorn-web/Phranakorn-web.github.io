@@ -3,818 +3,867 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
-    <title>ระบบบริหารจัดการคลังสินค้า (WMS Enterprise Ultimate Security v2026)</title>
-    
-    <!-- Google Fonts & Font Awesome Icons -->
-    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <title>ระบบจัดการคลังสินค้า WMS Enterprise Engine</title>
+
+    <!-- 🟢 1. External Libraries & Fonts CDN -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-
-    <!-- External Libraries: Supabase, SheetJS & JsBarcode -->
+    
+    <!-- Supabase JS SDK v2 -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- JsBarcode Generator -->
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <!-- SheetJS / XLSX Export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-    <!-- Custom CSS -->
+    <!-- 🟢 2. CSS Stylesheet หลัก -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- SYSTEM AUTH LOGIN OVERLAY -->
-    <div id="loginOverlay" class="login-overlay">
-        <div class="login-card">
-            <div class="login-brand-icon"><i class="fa-solid fa-boxes-stacked"></i></div>
-            <h2 style="font-weight: 800; font-size: 1.35rem; color: var(--text-main); margin-bottom: 4px;">เข้าสู่ระบบ WMS System</h2>
-            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">กรุณากรอก Username และ Password เพื่อเข้าสู่ระบบ</p>
-
-            <form id="loginForm" onsubmit="handleSystemLogin(event)" autocomplete="off">
-                <div class="form-group" style="text-align: left;">
-                    <label for="loginUsername"><i class="fa-solid fa-user" style="color:var(--primary);"></i> ชื่อผู้ใช้งาน (Username)</label>
-                    <input type="text" id="loginUsername" class="form-control mono" placeholder="เช่น admin หรือ user1" required autofocus autocomplete="off">
-                </div>
-                <div class="form-group" style="text-align: left; margin-bottom: 1.2rem;">
-                    <label for="loginPassword"><i class="fa-solid fa-key" style="color:var(--primary);"></i> รหัสผ่าน (Password)</label>
-                    <input type="password" id="loginPassword" class="form-control mono" placeholder="••••••••" required autocomplete="off">
-                </div>
-                <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width: 100%; padding: 11px; font-size: 1rem; border-radius: var(--radius-md);">
-                    <i class="fa-solid fa-right-to-bracket"></i> ยืนยันเข้าสู่ระบบ
-                </button>
-            </form>
-            <div id="loginErrorAlert" style="display: none; color: var(--danger); font-size: 0.82rem; font-weight: 600; margin-top: 1rem;">
-                <i class="fa-solid fa-circle-exclamation"></i> <span id="loginErrorMsg">Username หรือ Password ไม่ถูกต้อง!</span>
-            </div>
+<!-- 🟢 3. หน้าต่างยืนยันล็อกอินเข้าสู่ระบบ (Login Overlay) -->
+<div id="loginOverlay" class="login-overlay">
+    <div class="login-card">
+        <div class="login-brand-icon">
+            <i class="fa-solid fa-boxes-stacked"></i>
         </div>
+        <h2 style="font-size: 1.4rem; font-weight: 700; margin-bottom: 4px;">ระบบจัดการคลังสินค้า</h2>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">WMS Enterprise Database Engine</p>
+
+        <form onsubmit="handleSystemLogin(event)" style="text-align: left;">
+            <div class="form-group">
+                <label for="loginUsername"><i class="fa-solid fa-user"></i> ชื่อผู้ใช้งาน (Username)</label>
+                <input type="text" id="loginUsername" class="form-control" placeholder="กรอกชื่อผู้ใช้..." required autocomplete="username">
+            </div>
+            <div class="form-group" style="margin-bottom: 1.2rem;">
+                <label for="loginPassword"><i class="fa-solid fa-key"></i> รหัสผ่าน (Password)</label>
+                <input type="password" id="loginPassword" class="form-control" placeholder="กรอกรหัสผ่าน..." required autocomplete="current-password">
+            </div>
+
+            <div id="loginErrorAlert" style="display: none; background: var(--danger-light); color: var(--danger); border: 1px solid var(--danger); padding: 8px 12px; border-radius: 8px; font-size: 0.82rem; margin-bottom: 1rem; text-align: center; font-weight: 600;">
+                <span id="loginErrorMsg">Username หรือ Password ไม่ถูกต้อง!</span>
+            </div>
+
+            <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 0.95rem; font-weight: 700;">
+                <i class="fa-solid fa-right-to-bracket"></i> เข้าสู่ระบบ
+            </button>
+        </form>
     </div>
+</div>
 
-    <!-- Sidebar Navigation Menu -->
-    <aside class="sidebar">
-        <div class="sidebar-brand">
-            <div class="brand-icon"><i class="fa-solid fa-boxes-stacked"></i></div>
-            <div>
-                <div style="font-weight: 800; font-size: 1.05rem; color:#fff;">WMS Enterprise</div>
-                <div style="font-size: 0.72rem; color: #9ca3af;">ระบบบริหารจัดการคลังสินค้า Ultimate</div>
+<!-- 🟢 4. แถบแจ้งเตือนสถานะออฟไลน์ (Offline Sync Banner) -->
+<div id="offlineNoticeBanner" class="offline-banner is-offline" style="display: none;">
+    <i class="fa-solid fa-wifi-slash"></i>
+    <span id="offlineBannerMsg">โหมดออฟไลน์ — ยังรับสินค้าต่อได้ปกติ</span>
+    <span class="offline-count badge-action delete">ค้างซิงค์: <strong id="offlineQueueBadge">0</strong> รายการ</span>
+    <button type="button" class="btn btn-sm btn-secondary" style="margin-left: auto;" onclick="clearOfflineInboundQueue()">ล้างคิว</button>
+</div>
+
+<!-- 🟢 5. โครงสร้างหลัก Dashboard (Sidebar + Content Area) -->
+<div class="app-container"> 
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleMobileSidebar()"></div>
+
+    <!-- Sidebar Menu ฝั่งซ้าย -->
+    <aside id="menu" class="sidebar">
+        <div class="sidebar-header">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div class="brand-icon-wrapper">
+                    <i class="fa-solid fa-boxes-stacked"></i>
+                </div>
+                <div>
+                    <div class="brand-name">WMS Enterprise</div>
+                    <div class="brand-sub">Warehouse System</div>
+                </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-secondary mobile-close-btn" onclick="toggleMobileSidebar()" style="display:none;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div class="sidebar-search-box">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" id="menuSearchInput" onkeyup="filterSidebarMenu()" placeholder="ค้นหาเมนู... (Ctrl+K)" autocomplete="off">
+        </div>
+        
+        <div class="sidebar-scroll-container" id="sidebarScrollContainer">
+            <ul id="sidebarMenuList" style="display:none;"></ul>
+
+            <!-- หมวดจัดการคลัง -->
+            <div class="menu-category" id="cat-warehouse">
+                <div class="menu-category-title">
+                    <span><i class="fa-solid fa-warehouse"></i> จัดการคลัง & สินค้า</span>
+                </div>
+                <ul>
+                    <li>
+                        <a href="javascript:void(0)" id="m-inventory-link" class="menu-item-btn" data-view="view-inventory" onclick="switchView('view-inventory')">
+                            <i class="fa-solid fa-list-check"></i> <span>เช็คสต็อกสินค้า</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="javascript:void(0)" id="m-inbound-link" class="menu-item-btn" data-view="view-inbound" onclick="switchView('view-inbound')">
+                            <i class="fa-solid fa-arrow-right-to-bracket"></i> <span>รับสินค้าเข้าคลัง (Fast)</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="javascript:void(0)" id="m-outbound-link" class="menu-item-btn" data-view="view-outbound" onclick="switchView('view-outbound')">
+                            <i class="fa-solid fa-truck-arrow-right"></i> <span>จ่ายสินค้าออกจากคลัง</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="javascript:void(0)" id="m-locations-link" class="menu-item-btn" data-view="view-locations" onclick="switchView('view-locations')">
+                            <i class="fa-solid fa-map-location-dot"></i> <span>ผังตำแหน่งคลังสินค้า</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- หมวดผู้ดูแลระบบ -->
+            <div class="menu-category" id="cat-admin">
+                <div class="menu-category-title">
+                    <span><i class="fa-solid fa-user-shield"></i> ผู้ดูแลระบบ & ประวัติ</span>
+                </div>
+                <ul>
+                    <li>
+                        <a href="javascript:void(0)" id="m-approvals-link" class="menu-item-btn" data-view="view-approvals" onclick="switchView('view-approvals')">
+                            <i class="fa-solid fa-clipboard-check"></i> <span>ศูนย์อนุมัติคำขอ</span>
+                            <span id="sidebarApprovalBadge" class="badge-action delete approval-pending-badge" style="display:none; margin-left:auto;">0</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="javascript:void(0)" id="m-activities-link" class="menu-item-btn" data-view="view-activities" onclick="switchView('view-activities')">
+                            <i class="fa-solid fa-clock-rotate-left"></i> <span>ดูประวัติการใช้งาน</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="javascript:void(0)" id="m-settings-link" class="menu-item-btn" data-view="view-settings" onclick="switchView('view-settings')">
+                            <i class="fa-solid fa-gears"></i> <span>ตั้งค่าพิกัดคลังสินค้า</span>
+                        </a>
+                    </li>
+                </ul>
             </div>
         </div>
 
-        <ul class="sidebar-menu" id="sidebarMenuList"></ul>
+        <div class="sidebar-status-footer">
+            <span class="status-indicator">
+                <span class="pulse-dot"></span>
+            </span>
+            <span id="dbStatusText" style="font-size:0.75rem;">🟢 Supabase Connected</span>
+        </div>
     </aside>
 
-    <!-- Main Content Area -->
+    <!-- พื้นที่แสดงเนื้อหา View ฝั่งขวา -->
     <div class="main-wrapper">
+        <!-- Top Navbar -->
         <header class="top-navbar">
-            <div style="font-weight: 700; font-size: 1.15rem; display: flex; align-items: center; gap: 10px;" id="navTitleText">
-                <i class="fa-solid fa-list-check" style="color:var(--primary);"></i> เช็คสต็อกคลังสินค้าทั้งหมด
+            <div style="display:flex; align-items:center; gap:12px;">
+                <button type="button" class="btn btn-sm btn-secondary mobile-sidebar-toggle-trigger" onclick="toggleMobileSidebar()" style="display:none;">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+                <div id="mainHeaderTitle" class="page-nav-header">
+                    <i class="fa-solid fa-boxes-stacked" style="color:var(--primary);"></i>
+                    <span>เช็คสต็อกคลังสินค้า</span>
+                </div>
             </div>
             
             <div style="display:flex; align-items:center; gap:10px;">
-                <button class="theme-toggle-btn" onclick="toggleAppTheme()" title="สลับธีม สว่าง / มืด">
-                    <i class="fa-solid fa-sun" id="themeIconSun" style="color:#f59e0b;"></i>
-                    <i class="fa-solid fa-moon" id="themeIconMoon" style="display:none; color:#a5b4fc;"></i>
-                    <span id="themeToggleText">โหมดสว่าง</span>
-                </button>
-
-                <button class="btn btn-sm btn-secondary" id="voiceToggleBtn" onclick="toggleVoiceAudioAlert()" title="เปิด/ปิด เสียงอ่าน AI">
+                <button type="button" class="theme-toggle-btn" id="voiceToggleBtn" onclick="toggleVoiceAudioAlert()">
                     <i class="fa-solid fa-volume-high" style="color:var(--success);"></i> AI Voice On
                 </button>
-
-                <div class="user-profile-badge" id="currentUserBadge">
-                    <i class="fa-solid fa-user-circle"></i> <span id="currentUserNameText">admin</span>
-                </div>
-                <button class="btn btn-sm btn-secondary" onclick="openChangePasswordModal()" title="เปลี่ยนรหัสผ่านผู้ใช้">
-                    <i class="fa-solid fa-key" style="color:var(--primary);"></i> เปลี่ยนรหัส
+                <button type="button" class="theme-toggle-btn" onclick="toggleAppTheme()">
+                    <i class="fa-solid fa-sun" id="themeIconSun"></i>
+                    <i class="fa-solid fa-moon" id="themeIconMoon" style="display:none;"></i>
+                    <span id="themeToggleText">โหมดสว่าง</span>
                 </button>
-                <button class="btn btn-sm btn-secondary" onclick="handleSystemLogout()" title="ออกจากระบบ">
-                    <i class="fa-solid fa-right-from-bracket" style="color:var(--danger);"></i>
-                </button>
-                <div class="status-badge" id="dbStatusBadge">
-                    <span class="pulse-dot" id="dbPulseDot"></span>
-                    <span id="dbStatusText">Realtime Connected</span>
+                <div class="user-profile-badge">
+                    <i class="fa-solid fa-circle-user"></i>
+                    <span id="currentUserNameText">Super Admin</span>
                 </div>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="openChangePasswordModal()" title="เปลี่ยนรหัสผ่าน">
+                    <i class="fa-solid fa-key"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-danger" onclick="handleSystemLogout()" title="ออกจากระบบ">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
             </div>
         </header>
 
-        <!-- OFFLINE & QUEUE MANAGEMENT BANNER -->
-        <div id="offlineNoticeBanner" class="offline-banner" style="display:none;">
-            <i class="fa-solid fa-cloud-arrow-up"></i>
-            <span id="offlineBannerMsg" style="flex:1;">-</span>
-            <span class="mono offline-count">รอบันทึก: <b id="offlineQueueBadge">0</b></span>
-            <button type="button" class="btn btn-sm btn-secondary" onclick="syncOfflineQueueToDatabase()"><i class="fa-solid fa-rotate"></i> ซิงค์ตอนนี้</button>
-            <button type="button" class="btn btn-sm btn-danger" onclick="clearOfflineInboundQueue()"><i class="fa-solid fa-trash"></i> ลบคิวค้างทั้งหมด</button>
-        </div>
-
         <main class="content-area">
+            <!-- 🟢 VIEW 1: เช็คสต็อกสินค้า (inv-db.js) -->
+            <section id="view-inventory" class="view-section">
+                <div class="card-header">
+                    <h2 class="card-title"><i class="fa-solid fa-boxes-stacked" style="color:var(--primary);"></i> เช็คสต็อกสินค้าทั้งหมด</h2>
+                </div>
 
-            <!-- VIEW 1: INVENTORY CHECK -->
-            <section id="view-inventory" class="view-section active">
                 <div class="kpi-grid">
                     <div class="kpi-card">
-                        <div class="kpi-title"><i class="fa-solid fa-boxes-stacked" style="color:var(--primary);"></i> สินค้าทั้งหมดในคลัง</div>
+                        <div class="kpi-title"><i class="fa-solid fa-cubes"></i> ยอดสินค้าในคลังทั้งหมด</div>
                         <div class="kpi-value mono" id="kpiTotalItems">0</div>
                     </div>
                     <div class="kpi-card green">
-                        <div class="kpi-title"><i class="fa-solid fa-tags" style="color:var(--success);"></i> SKU ในคลัง / Master</div>
-                        <div class="kpi-value mono" id="kpiTotalModels" style="color:var(--success);">0</div>
+                        <div class="kpi-title"><i class="fa-solid fa-layer-group"></i> จำนวนรุ่นสินค้า (SKU)</div>
+                        <div class="kpi-value mono" id="kpiTotalModels">0</div>
                     </div>
                     <div class="kpi-card amber">
-                        <div class="kpi-title"><i class="fa-solid fa-truck-loading" style="color:var(--warning);"></i> พักรอจัดเก็บ / DOCK</div>
-                        <div class="kpi-value mono" id="kpiDockItems" style="color:var(--warning);">0</div>
+                        <div class="kpi-title"><i class="fa-solid fa-truck-ramp-box"></i> ฝากไว้ลาน DOCK Area</div>
+                        <div class="kpi-value mono" id="kpiDockItems">0</div>
                     </div>
                 </div>
 
                 <div class="card">
-                    <div class="card-header">
-                        <div class="card-title"><i class="fa-solid fa-warehouse" style="color:var(--primary);"></i> ตรวจเช็ครายการสต็อกสินค้า Real-time</div>
-                        
-                        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                            <button class="btn btn-primary" onclick="requestBatchRelocateModal()">
-                                <i class="fa-solid fa-arrows-split-up-and-left"></i> ย้ายรายการที่เลือก (<span id="selectedRelocateCountSpan">0</span>)
-                            </button>
-                            <button class="btn btn-danger" onclick="requestDeleteModal('BATCH')">
-                                <i class="fa-solid fa-trash-can"></i> ลบรายการที่เลือก (<span id="selectedCountSpan">0</span>)
-                            </button>
-                            <button class="btn btn-primary" onclick="openPrintBarcodeModal('SELECTED')">
-                                <i class="fa-solid fa-print"></i> พิมพ์บาร์โค้ดสติ๊กเกอร์
-                            </button>
-                            <button class="btn btn-success" onclick="openExcelExportModal()">
-                                <i class="fa-solid fa-file-excel"></i> ส่งออก Excel
-                            </button>
+                    <div class="form-grid" style="margin-bottom: 12px;">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="searchInput"><i class="fa-solid fa-magnifying-glass"></i> ค้นหาด่วน (S/N, SKU, ชื่อรุ่น, พิกัด, ผู้รับ):</label>
+                            <input type="text" id="searchInput" class="form-control" placeholder="พิมพ์เพื่อค้นหา..." oninput="filterInventoryData()">
+                        </div>
+                        <div class="form-group">
+                            <label for="filterAisleSelect"><i class="fa-solid fa-arrows-left-right"></i> กรองตามแถว (Aisle):</label>
+                            <select id="filterAisleSelect" class="form-select" onchange="onFilterAisleChange()"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="filterBaySelect"><i class="fa-solid fa-grip"></i> กรองตามล็อก (Bay):</label>
+                            <select id="filterBaySelect" class="form-select" onchange="filterInventoryData()">
+                                <option value="ALL">📦 ทุกล็อกในแถว</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="filterLocationSelect"><i class="fa-solid fa-location-dot"></i> พิกัดระบุตรง:</label>
+                            <select id="filterLocationSelect" class="form-select" onchange="filterInventoryData()">
+                                <option value="ALL">📍 แสดงทุกพิกัด</option>
+                            </select>
                         </div>
                     </div>
 
-                    <div style="margin-bottom: 0.8rem; display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; justify-content: space-between; background:var(--bg-subtle); padding:0.7rem; border-radius:var(--radius-md); border:1px solid var(--border-color);">
-                        <div style="display:flex; gap:0.6rem; flex-wrap:wrap; flex:1;">
-                            <input type="text" id="searchInput" class="form-control" style="max-width: 250px;" placeholder="🔍 ค้นหา S/N, SKU, ชื่อรุ่น..." oninput="filterInventoryData()">
-                            <select id="filterAisleSelect" class="form-select mono" style="max-width: 160px;" onchange="onFilterAisleChange()"><option value="ALL">📍 แสดงทุกแถว (All)</option></select>
-                            <select id="filterBaySelect" class="form-select mono" style="max-width: 160px;" onchange="filterInventoryData()"><option value="ALL">📦 ทุกล็อกในแถว</option></select>
-                            <select id="filterLocationSelect" class="form-select mono" style="max-width: 180px;" onchange="filterInventoryData()"><option value="ALL">🏢 แสดงทุกช่องจัดเก็บ</option></select>
-                        </div>
-                        <span id="totalCountBadge" class="status-badge">ดึงข้อมูลแล้ว 0 รายการ</span>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                        <span id="totalCountBadge" class="mono font-bold" style="font-size:0.88rem; color:var(--text-sub);">กำลังดึงข้อมูล...</span>
+                        <button id="btnToggleInventoryViewMode" class="btn btn-sm btn-secondary" onclick="toggleStockViewMode()">
+                            <i class="fa-solid fa-layer-group" style="color:var(--primary);"></i> โหมดจัดกลุ่มตามรุ่น (Default)
+                        </button>
                     </div>
 
                     <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width: 38px; text-align: center;"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAllVisibleItems(this.checked)"></th>
-                                    <th style="width: 45px; text-align: center;">#</th>
-                                    <th style="min-width: 120px;"><i class="fa-solid fa-barcode"></i> SKU</th>
-                                    <th style="min-width: 200px; max-width: 300px;"><i class="fa-solid fa-box"></i> ชื่อรุ่น / รายละเอียด</th>
-                                    <th style="min-width: 120px;"><i class="fa-solid fa-gauge"></i> เลขมิเตอร์</th>
-                                    <th style="min-width: 150px;"><i class="fa-solid fa-qrcode"></i> ซีเรียล (S/N)</th>
-                                    <th style="min-width: 140px;"><i class="fa-solid fa-location-dot"></i> พิกัดจัดเก็บ</th>
-                                    <th style="width: 60px; text-align: center;">จำนวน</th>
-                                    <th style="min-width: 130px;"><i class="fa-solid fa-calendar-days"></i> รับเข้าเมื่อ</th>
-                                    <th style="width: 65px; text-align: center;">พิมพ์</th>
-                                    <th style="width: 65px; text-align: center;">แก้ไข</th>
-                                    <th style="width: 65px; text-align: center;">ย้าย</th>
-                                    <th style="width: 65px; text-align: center;">ลบ</th>
-                                </tr>
-                            </thead>
-                            <tbody id="inventoryTableBody">
-                                <tr><td colspan="13" style="text-align:center; padding:24px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดข้อมูล Realtime จาก DB...</td></tr>
-                            </tbody>
+                        <table class="modern-table">
+                            <thead></thead>
+                            <tbody id="inventoryTableBody"></tbody>
                         </table>
                     </div>
                 </div>
             </section>
 
-            <!-- VIEW 2: FAST INBOUND -->
+            <!-- 🟢 VIEW 2: รับสินค้าเข้าคลัง (inbound-db.js) -->
             <section id="view-inbound" class="view-section">
-                <div class="db-stat-box" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; padding:1rem 1.25rem; background:var(--primary-light); border:1px solid var(--primary-border); border-radius:var(--radius-md); margin-bottom:1.25rem;">
-                    <div style="flex:1; min-width:280px;">
-                        <div style="font-size:0.85rem; color:var(--primary-text); font-weight:700; margin-bottom:4px;">
-                            <i class="fa-solid fa-database"></i> เชื่อมต่อฐานข้อมูลสินค้า Master (products) Realtime 100%
-                        </div>
-                        <div style="font-size:0.95rem; font-weight:700; color:var(--text-main); word-break:break-word;" id="inboundMasterProductsStatText">
-                            <i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลดฐานข้อมูลสินค้า Master ทั้งหมด...
-                        </div>
-                    </div>
-                    <button class="btn btn-sm btn-primary" onclick="loadDataFromDatabase()" style="white-space:nowrap;"><i class="fa-solid fa-rotate"></i> ซิงค์ข้อมูล DB</button>
+                <div class="card-header">
+                    <h2 class="card-title"><i class="fa-solid fa-arrow-right-to-bracket" style="color:var(--success);"></i> รับสินค้าเข้าคลัง (Fast Inbound)</h2>
+                    <span id="liveInboundHeaderBadge" class="status-badge"><span class="pulse-dot"></span> บันทึก DB เรียบร้อย</span>
                 </div>
 
                 <div class="fullscreen-split-layout">
                     <div class="card">
-                        <div class="card-header">
-                            <div class="card-title"><i class="fa-solid fa-arrow-right-to-bracket" style="color:var(--primary);"></i> บันทึกรับสินค้าเข้าคลัง (Fast Inbound Engine)</div>
-                        </div>
-
-                        <form id="inboundForm" onsubmit="handleInboundSubmit(event)">
-                            <div class="form-group autocomplete-wrapper" style="position:relative;">
-                                <label for="skuSearchInput"><i class="fa-solid fa-magnifying-glass" style="color:var(--primary);"></i> ค้นหารหัสสินค้า (SKU) หรือ ชื่อรุ่น จากฐานข้อมูล Master</label>
-                                <input type="text" id="skuSearchInput" class="form-control mono" style="font-weight:700;" placeholder="🔍 พิมพ์รหัสสินค้า หรือ ชื่อรุ่น เพื่อค้นหาแบบ Realtime..." autocomplete="off" oninput="onSkuSearchInput(this.value)">
-                                <div id="skuSuggestionsBox" class="suggestions-box"></div>
+                        <form onsubmit="handleInboundSubmit(event)">
+                            <div class="form-group" style="position:relative;">
+                                <label for="skuSearchInput"><i class="fa-solid fa-magnifying-glass"></i> ค้นหา SKU / ชื่อรุ่น จาก Master Products:</label>
+                                <input type="text" id="skuSearchInput" class="form-control" placeholder="พิมพ์รหัส SKU หรือ ชื่อรุ่น..." oninput="onSkuSearchInput(this.value)" autocomplete="off">
+                                <div id="skuSuggestionsBox" class="suggestions-box" style="display:none; position:absolute; top:100%; left:0; right:0; background:var(--bg-surface); border:1px solid var(--border-strong); z-index:1000; max-height:200px; overflow-y:auto; border-radius:8px;"></div>
                             </div>
 
                             <div class="form-grid">
                                 <div class="form-group">
-                                    <label for="inboundCategory">รหัสสินค้า / SKU</label>
-                                    <input type="text" id="inboundCategory" class="form-control mono" placeholder="เช่น 1102P13AX0" required>
+                                    <label for="inboundCategory">รหัสสินค้า (SKU):</label>
+                                    <input type="text" id="inboundCategory" class="form-control mono font-bold" placeholder="เช่น SKU-001" required>
                                 </div>
                                 <div class="form-group">
-                                    <label for="inboundName">ชื่อรุ่น / รายละเอียดสินค้า</label>
-                                    <input type="text" id="inboundName" class="form-control" placeholder="เช่น ECOSYS M4132idn" required>
+                                    <label for="inboundName">ชื่อรุ่น / รายละเอียด:</label>
+                                    <input type="text" id="inboundName" class="form-control" placeholder="ระบุรายละเอียด..." required>
                                 </div>
                             </div>
 
-                            <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap:1rem; align-items: stretch; margin-bottom: 0.8rem;">
-                                <div class="form-group" style="background:var(--primary-light); padding:0.9rem 1rem; border-radius:var(--radius-md); border:1px solid var(--primary-border); display:flex; flex-direction:column; justify-content:space-between; margin-bottom:0;">
-                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                        <label for="inboundSn" style="color:var(--primary-text); font-size:0.88rem; font-weight:700; margin-bottom:0;"><i class="fa-solid fa-barcode"></i> หมายเลขซีเรียล (S/N)</label>
-                                        <button type="button" class="btn btn-sm btn-secondary" onclick="generateAutoSN()"><i class="fa-solid fa-wand-magic-sparkles"></i> สุ่ม</button>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="inboundMeter"><i class="fa-solid fa-gauge"></i> เลขมิเตอร์เริ่มต้น:</label>
+                                    <input type="number" id="inboundMeter" class="form-control mono font-bold" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="inboundSn"><i class="fa-solid fa-barcode"></i> หมายเลขซีเรียล (S/N):</label>
+                                    <div style="display:flex; gap:6px;">
+                                        <input type="text" id="inboundSn" class="form-control mono font-bold" placeholder="สแกน หรือ พิมพ์ S/N..." required>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="generateAutoSN()" title="สุ่ม S/N"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
                                     </div>
-                                    <input type="text" id="inboundSn" class="form-control mono" style="font-weight:700; font-size:1.1rem; height:46px;" placeholder="🎯 สแกน S/N..." required autofocus autocomplete="off">
-                                </div>
-
-                                <div class="form-group" style="background:var(--bg-subtle); padding:0.9rem 1rem; border-radius:var(--radius-md); border:1px solid var(--border-strong); display:flex; flex-direction:column; justify-content:space-between; margin-bottom:0;">
-                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                        <label for="inboundMeter" style="font-size:0.88rem; font-weight:700; margin-bottom:0;"><i class="fa-solid fa-gauge" style="color:var(--warning);"></i> เลขมิเตอร์เครื่องถ่ายเอกสาร</label>
-                                    </div>
-                                    <input type="number" id="inboundMeter" class="form-control mono" style="font-weight:700; font-size:1.1rem; height:46px;" placeholder="0" value="0" min="0">
                                 </div>
                             </div>
 
-                            <div class="card" style="background:var(--bg-subtle); padding:0.9rem; margin-top:0.4rem; margin-bottom:0.8rem;">
-                                <div style="font-weight:700; font-size:0.85rem; margin-bottom:0.5rem; display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;">
-                                    <span><i class="fa-solid fa-location-dot" style="color:var(--primary);"></i> เลือกพิกัดจัดเก็บ (1 S/N ต่อ 1 พิกัด - ไม่ซ้ำเด็ดขาด)</span>
-                                    <span id="bayInboundCountBadge" class="mono" style="font-size:0.78rem; font-weight:700; color:var(--primary-text);">รับแล้วในช่องนี้: 0 เครื่อง</span>
+                            <div class="card-title" style="font-size:0.95rem; margin-top:10px; margin-bottom:8px;"><i class="fa-solid fa-location-dot"></i> กำหนดพิกัดจัดเก็บสินค้า</div>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="inboundAisleSelect">แถว (Aisle):</label>
+                                    <select id="inboundAisleSelect" class="form-select" onchange="onInboundAisleOrBayChange()"></select>
                                 </div>
-                                
-                                <div class="form-grid">
-                                    <div class="form-group"><label>แถว</label><select id="inboundAisleSelect" class="form-select mono" onchange="onInboundAisleOrBayChange()"></select></div>
-                                    <div class="form-group"><label>ล็อก</label><select id="inboundBaySelect" class="form-select mono" onchange="autoSelectAvailableSlot()"></select></div>
-                                    <div class="form-group"><label>ชั้น</label><select id="inboundShelfSelect" class="form-select mono" onchange="updateInboundLocationPreview()"></select></div>
-                                    <div class="form-group"><label>ช่อง</label><select id="inboundSlotSelect" class="form-select mono" onchange="updateInboundLocationPreview()"></select></div>
+                                <div class="form-group">
+                                    <label for="inboundBaySelect">ล็อก (Bay):</label>
+                                    <select id="inboundBaySelect" class="form-select" onchange="autoSelectAvailableSlot()"></select>
                                 </div>
-                                
-                                <div style="font-size:0.88rem; font-weight:700; color:var(--primary-text); margin-top:4px;">
-                                    พิกัดที่จะรับเข้า: <span id="inboundLocationPreview" class="badge-location mono">DOCK</span>
+                                <div class="form-group">
+                                    <label for="inboundShelfSelect">ชั้น (Shelf):</label>
+                                    <select id="inboundShelfSelect" class="form-select" onchange="updateInboundLocationPreview()"></select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="inboundSlotSelect">ช่อง (Slot):</label>
+                                    <select id="inboundSlotSelect" class="form-select" onchange="updateInboundLocationPreview()"></select>
                                 </div>
                             </div>
 
-                            <button type="submit" id="inboundSubmitBtn" class="btn btn-primary" style="width: 100%; padding: 12px; font-size:1rem;">
-                                <i class="fa-solid fa-cloud-arrow-up"></i> บันทึกรับสินค้าเข้า DB (ENTER)
+                            <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-subtle); padding:10px 14px; border-radius:10px; margin-top:12px;">
+                                <div>
+                                    <span style="font-size:0.85rem; color:var(--text-sub);">พิกัดจัดเก็บที่เลือก: </span>
+                                    <span id="inboundLocationPreview" class="badge-location mono" style="font-size:1rem;">A-01-1-01</span>
+                                </div>
+                                <span id="bayInboundCountBadge" class="mono font-bold" style="font-size:0.8rem; color:var(--text-muted);">รับแล้วในล็อกนี้: 0 เครื่อง</span>
+                            </div>
+
+                            <button type="submit" class="btn btn-success" style="width:100%; margin-top:14px; padding:12px; font-size:0.95rem;">
+                                <i class="fa-solid fa-circle-plus"></i> บันทึกรับสินค้าเข้าคลัง (Enter)
                             </button>
                         </form>
                     </div>
 
-                    <div>
-                        <div class="card">
-                            <div class="card-header"><div class="card-title" style="font-size:0.95rem;"><i class="fa-solid fa-clock-rotate-left" style="color:var(--success);"></i> ประวัติการรับเข้าล่าสุด (Live Feed)</div>
-                            <span id="liveInboundHeaderBadge" class="status-badge"><span class="pulse-dot"></span> บันทึก DB ครบแล้ว</span></div>
-                            <div id="liveInboundFeedContainer" style="max-height:480px; overflow-y:auto;">
-                                <div style="text-align:center; padding:20px; color:var(--text-muted); font-size:0.85rem;">ยังไม่มีรายการรับเข้าใหม่</div>
-                            </div>
+                    <div class="card">
+                        <div class="card-title" style="margin-bottom:10px;"><i class="fa-solid fa-stream"></i> ประวัติรายการรับเข้าล่าสุด (Live Feed)</div>
+                        <div id="liveInboundFeedContainer" style="max-height: 520px; overflow-y: auto;">
+                            <div style="text-align:center; padding:30px; color:var(--text-muted);">ยังไม่มีรายการรับเข้าในเซสชันนี้</div>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- VIEW 3: OUTBOUND -->
+            <!-- 🟢 VIEW 3: จ่ายสินค้าออกจากคลัง (outbound-db.js) -->
             <section id="view-outbound" class="view-section">
+                <div class="card-header">
+                    <h2 class="card-title"><i class="fa-solid fa-truck-arrow-right" style="color:var(--warning);"></i> จ่ายสินค้าออกจากคลัง (Outbound Work Order)</h2>
+                </div>
+
                 <div class="fullscreen-split-layout">
                     <div class="card">
-                        <div class="card-header">
-                            <div class="card-title"><i class="fa-solid fa-truck-arrow-right" style="color:var(--warning);"></i> บันทึกตัดจ่ายสินค้าออกจากคลัง</div>
-                        </div>
-
-                        <form id="outboundForm" onsubmit="handleAddOutboundToCart(event)">
-                            <div class="form-grid align-equal-grid" style="margin-bottom:0.8rem;">
-                                <div class="form-group"><label>สถานที่จ่ายไป / ปลายทาง</label><input type="text" id="outboundDestination" class="form-control" placeholder="เช่น สาขาใหญ่" required></div>
-                                <div class="form-group"><label>ผู้จ่ายสินค้า (ผู้ส่ง)</label><input type="text" id="outboundDispatcher" class="form-control" placeholder="เช่น นายสมชาย" required></div>
-                                <div class="form-group"><label>ผู้รับสินค้า / ขนส่ง</label><input type="text" id="outboundReceiver" class="form-control" placeholder="เช่น พนักงานขนส่ง" required></div>
-                            </div>
-
-                            <div class="form-group" style="background:var(--warning-light); border:1px solid rgba(245, 158, 11, 0.3); padding:1rem; border-radius:var(--radius-md);">
-                                <label for="outboundSn" style="color:var(--warning); font-size:0.95rem;"><i class="fa-solid fa-barcode"></i> ยิงสแกนหมายเลข S/N เพื่อสะสมลงใบสั่งจ่าย</label>
-                                <input type="text" id="outboundSn" class="form-control mono" style="font-weight:700; font-size:1.1rem;" placeholder="🎯 ยิงสแกน S/N แล้วกด Enter..." autocomplete="off">
-                            </div>
-
-                            <div style="margin-bottom:1rem;">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-                                    <strong style="font-size:0.88rem;"><i class="fa-solid fa-cart-flatbed"></i> รายการที่จะตัดจ่าย:</strong>
-                                    <span class="badge-location mono" id="outboundCartCountBadge">0 รายการ</span>
-                                </div>
-                                <div class="table-responsive" style="max-height: 180px;">
-                                    <table>
-                                        <thead>
-                                            <tr><th>#</th><th>SKU</th><th>ชื่อสินค้า</th><th>S/N</th><th>มิเตอร์</th><th>พิกัดเดิม</th><th style="text-align:center;">ยกเลิก</th></tr>
-                                        </thead>
-                                        <tbody id="outboundCartTableBody">
-                                            <tr><td colspan="7" style="text-align:center; padding:15px; color:var(--text-muted);">ยังไม่มีรายการ ยิงสแกน S/N เพื่อเพิ่มเข้าใบสั่งจ่าย</td></tr>
-                                        </tbody>
-                                    </table>
+                        <form onsubmit="handleAddOutboundToCart(event)" style="margin-bottom:1rem;">
+                            <div class="form-group">
+                                <label for="outboundSn"><i class="fa-solid fa-barcode"></i> ยิงสแกนหมายเลขซีเรียล (S/N) เพื่อจ่ายออก:</label>
+                                <div style="display:flex; gap:8px;">
+                                    <input type="text" id="outboundSn" class="form-control mono font-bold" placeholder="สแกน S/N สินค้าที่นี่..." autofocus>
+                                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> เพิ่ม</button>
                                 </div>
                             </div>
-
-                            <button type="button" class="btn btn-warning" style="width: 100%; padding: 12px;" onclick="requestOutboundApproval()">
-                                <i class="fa-solid fa-paper-plane"></i> ยืนยันตัดจ่ายสินค้าออกจากคลัง
-                            </button>
                         </form>
+
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <strong style="font-size:0.92rem;"><i class="fa-solid fa-cart-flatbed"></i> รายการสินค้าในใบสั่งจ่าย</strong>
+                            <span id="outboundCartCountBadge" class="badge-action outbound">0 รายการ</span>
+                        </div>
+
+                        <div class="table-responsive" style="max-height: 250px; margin-bottom:1rem;">
+                            <table class="modern-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width:40px; text-align:center;">#</th>
+                                        <th>SKU</th>
+                                        <th>ชื่อรุ่น</th>
+                                        <th>S/N</th>
+                                        <th>มิเตอร์</th>
+                                        <th>พิกัด</th>
+                                        <th style="width:40px; text-align:center;">ลบ</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="outboundCartTableBody">
+                                    <tr><td colspan="7" style="text-align:center; padding:15px; color:var(--text-muted);">ยังไม่มีรายการ ยิงสแกน S/N เพื่อเพิ่มเข้าใบสั่งจ่าย</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="outboundDestination"><i class="fa-solid fa-building-flag"></i> สถานที่ปลายทาง / แผนกผู้รับ:</label>
+                                <input type="text" id="outboundDestination" class="form-control" placeholder="เช่น สาขาบางนา / ฝ่ายผลิต">
+                            </div>
+                            <div class="form-group">
+                                <label for="outboundDispatcher"><i class="fa-solid fa-user-gear"></i> ผู้จัดส่งสินค้า:</label>
+                                <input type="text" id="outboundDispatcher" class="form-control" placeholder="ระบุชื่อผู้จ่าย...">
+                            </div>
+                            <div class="form-group">
+                                <label for="outboundReceiver"><i class="fa-solid fa-user-check"></i> ผู้รับมอบสินค้า:</label>
+                                <input type="text" id="outboundReceiver" class="form-control" placeholder="ระบุชื่อผู้รับ...">
+                            </div>
+                        </div>
+
+                        <button type="button" class="btn btn-warning" onclick="requestOutboundApproval()" style="width:100%; padding:12px; font-size:0.95rem; margin-top:10px;">
+                            <i class="fa-solid fa-paper-plane"></i> ยืนยันตัดจ่าย / ส่งคำขออนุมัติจ่ายออก
+                        </button>
                     </div>
 
-                    <div>
-                        <div class="card">
-                            <div class="card-header">
-                                <div class="card-title" style="font-size:0.95rem;"><i class="fa-solid fa-clock-rotate-left" style="color:var(--warning);"></i> ประวัติใบสั่งจ่ายล่าสุด</div>
-                                <button class="btn btn-sm btn-secondary" onclick="loadOutboundHistoryFromDB()"><i class="fa-solid fa-rotate"></i></button>
-                            </div>
-                            <div id="liveOutboundFeedContainer" style="max-height:480px; overflow-y:auto;">
-                                <div style="text-align:center; padding:20px; color:var(--text-muted); font-size:0.85rem;">กำลังโหลดประวัติ...</div>
-                            </div>
+                    <div class="card">
+                        <div class="card-title" style="margin-bottom:10px;"><i class="fa-solid fa-clock-rotate-left"></i> ประวัติใบสั่งจ่ายล่าสุด</div>
+                        <div id="liveOutboundFeedContainer" style="max-height: 500px; overflow-y: auto;">
+                            <div style="text-align:center; padding:30px; color:var(--text-muted);">กำลังโหลดประวัติ...</div>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- VIEW 4: DRILL-DOWN LOCATION VISUALIZER -->
+            <!-- 🟢 VIEW 4: ผังตำแหน่งคลังสินค้า (locations-db.js) -->
             <section id="view-locations" class="view-section">
-                <div class="card">
-                    <div class="card-header">
-                        <div class="card-title"><i class="fa-solid fa-map-location-dot" style="color:var(--primary);"></i> ผังตำแหน่งจัดเก็บในคลัง Realtime (Drill-Down DB Data)</div>
-                        <button class="btn btn-sm btn-primary" onclick="loadDataFromDatabase()"><i class="fa-solid fa-rotate"></i> ซิงค์ DB ล่าสุด</button>
-                    </div>
-                    <div style="font-size:0.85rem; font-weight:700; color:var(--text-sub); margin-bottom:0.5rem;">1. เลือกแถวจัดเก็บจากฐานข้อมูล:</div>
-                    <div id="aisleFilterBar" class="aisle-filter-bar"></div>
-                    <div style="font-size:0.85rem; font-weight:700; color:var(--text-sub); margin-bottom:0.5rem;">2. เลือกล็อกจัดเก็บ:</div>
-                    <div id="baysGridContainer" class="bays-grid-container"></div>
-                    <div style="font-size:0.85rem; font-weight:700; color:var(--text-sub); margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
-                        <span>3. รายการ S/N จัดเก็บจริงในพื้นที่ทั้งหมด:</span>
-                        <span id="bayCapacityInfoText" class="mono" style="color:var(--primary-text); font-weight:700;"></span>
-                    </div>
-                    <div id="rackSlotsGrid" class="rack-slots-grid"></div>
+                <div class="card-header">
+                    <h2 class="card-title"><i class="fa-solid fa-map-location-dot" style="color:var(--primary);"></i> ผังตำแหน่งคลังสินค้า (Drill-Down Rack Map)</h2>
+                    <span id="bayCapacityInfoText" class="mono font-bold" style="font-size:0.88rem; color:var(--primary-text);">เลือกแถวและล็อกเพื่อดูรายละเอียด</span>
                 </div>
+
+                <div id="aisleFilterBar" class="form-grid" style="margin-bottom:1rem;"></div>
+                <div id="baysGridContainer" class="form-grid" style="margin-bottom:1rem;"></div>
+                <div id="rackSlotsGrid" class="form-grid"></div>
             </section>
 
-            <!-- VIEW 5: APPROVAL CENTER (ADMIN ONLY) -->
+            <!-- 🟢 VIEW 5: ศูนย์อนุมัติคำขอ (approvals-db.js) -->
             <section id="view-approvals" class="view-section">
-                <div class="settings-hero-banner">
-                    <div>
-                        <h2 style="font-size:1.4rem; font-weight:800; margin-bottom:4px; color:#f59e0b;"><i class="fa-solid fa-clipboard-check"></i> ศูนย์อนุมัติรายการ (Approval Center - Admin Only)</h2>
-                        <p style="font-size:0.85rem; color:#cbd5e1;">พิจารณาอนุมัติคำขอลบสินค้า ตัดจ่าย หรือย้ายพิกัดจาก User ทั่วไป</p>
+                <div class="card-header">
+                    <h2 class="card-title"><i class="fa-solid fa-clipboard-check" style="color:var(--primary);"></i> ศูนย์อนุมัติคำขอ (Approval Requests Center)</h2>
+                    <div style="display:flex; gap:6px;">
+                        <button class="btn btn-sm btn-secondary" onclick="filterApprovalsByStatus('ALL')">ทั้งหมด</button>
+                        <button class="btn btn-sm btn-warning" onclick="filterApprovalsByStatus('PENDING')">⏳ รออนุมัติ</button>
+                        <button class="btn btn-sm btn-success" onclick="filterApprovalsByStatus('APPROVED')">✅ อนุมัติแล้ว</button>
+                        <button class="btn btn-sm btn-danger" onclick="filterApprovalsByStatus('REJECTED')">❌ ปฏิเสธ</button>
                     </div>
-                    <button class="btn btn-sm btn-secondary" style="background:rgba(255,255,255,0.1); color:#fff;" onclick="loadPendingApprovalsFromDB()"><i class="fa-solid fa-rotate"></i> รีเฟรชรายการคำขอ</button>
                 </div>
 
-                <div class="settings-section-card">
-                    <div class="table-responsive">
-                        <table class="modern-table">
-                            <thead>
-                                <tr>
-                                    <th style="width:50px; text-align:center;">#</th>
-                                    <th style="width:140px;">วัน-เวลา</th>
-                                    <th style="width:140px;">ผู้ส่งคำขอ</th>
-                                    <th style="width:120px;">ประเภทคำขอ</th>
-                                    <th>รายละเอียดรายการ</th>
-                                    <th style="width:140px;">S/N ที่เกี่ยวข้อง</th>
-                                    <th style="width:180px; text-align:center;">การจัดการอนุมัติ</th>
-                                </tr>
-                            </thead>
-                            <tbody id="approvalsTableBody">
-                                <tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> กำลังดึงคำขอที่รออนุมัติ...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
+                <div class="table-responsive">
+                    <table class="modern-table">
+                        <thead>
+                            <tr>
+                                <th style="width:40px; text-align:center;">#</th>
+                                <th style="width:140px;">วันที่/เวลา</th>
+                                <th>ผู้ส่งคำขอ</th>
+                                <th>ประเภท & สถานะ</th>
+                                <th>รายละเอียดคำขอ</th>
+                                <th>รายการ S/N ที่เกี่ยวข้อง</th>
+                                <th style="text-align:center; width:160px;">ดำเนินการ (Admin)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="approvalsTableBody">
+                            <tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">กำลังโหลดข้อมูลคำขออนุมัติ...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </section>
 
-            <!-- VIEW 6: USER ACTIVITY AUDIT LOGS -->
+            <!-- 🟢 VIEW 6: ดูประวัติการใช้งาน (activities-db.js) -->
             <section id="view-activities" class="view-section">
-                <div class="settings-hero-banner">
-                    <div>
-                        <h2 style="font-size:1.4rem; font-weight:800; margin-bottom:4px;"><i class="fa-solid fa-clock-rotate-left"></i> ประวัติการใช้งานและกิจกรรมผู้ใช้ (User Activity Logs)</h2>
-                        <p style="font-size:0.85rem; color:#cbd5e1;">ตรวจสอบประวัติกิจกรรมการเข้าถึงและการทำรายการในระบบทั้งหมดแบบ Realtime</p>
-                    </div>
-                    <button class="btn btn-sm btn-secondary" style="background:rgba(255,255,255,0.1); color:#fff;" onclick="loadUserActivityLogsFromDB()"><i class="fa-solid fa-rotate"></i> ดึงประวัติล่าสุด</button>
+                <div class="card-header">
+                    <h2 class="card-title"><i class="fa-solid fa-clock-rotate-left" style="color:var(--primary);"></i> ประวัติการใช้งานระบบ (User Audit Logs)</h2>
+                    <span id="logTotalBadge" class="badge-action nav">0 ประวัติ</span>
                 </div>
 
-                <div class="settings-section-card">
-                    <div style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:1rem; justify-content:space-between; background:var(--bg-subtle); padding:0.8rem; border-radius:var(--radius-md);">
-                        <div style="display:flex; gap:0.6rem; flex-wrap:wrap; flex:1;">
-                            <input type="text" id="logSearchInput" class="form-control" style="max-width:250px;" placeholder="🔍 ค้นหาผู้ใช้, S/N, กิจกรรม..." oninput="filterActivityLogs()">
-                            <select id="logUserSelect" class="form-select mono" style="max-width:180px;" onchange="filterActivityLogs()"><option value="ALL">👤 ผู้ใช้ทุกคน (All Users)</option></select>
-                            <select id="logTypeSelect" class="form-select" style="max-width:200px;" onchange="filterActivityLogs()"><option value="ALL">⚡ ประเภทกิจกรรมทั้งหมด</option></select>
+                <div class="card">
+                    <div class="form-grid" style="margin-bottom:12px;">
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label for="logSearchInput"><i class="fa-solid fa-magnifying-glass"></i> ค้นหาในประวัติ:</label>
+                            <input type="text" id="logSearchInput" class="form-control" placeholder="พิมพ์ชื่อผู้ใช้, S/N หรือ รายละเอียด..." oninput="filterActivityLogs()">
                         </div>
-                        <span id="logTotalBadge" class="status-badge">0 ประวัติ</span>
+                        <div class="form-group">
+                            <label for="logUserSelect"><i class="fa-solid fa-user"></i> กรองตามผู้ใช้:</label>
+                            <select id="logUserSelect" class="form-select" onchange="filterActivityLogs()">
+                                <option value="ALL">👤 ผู้ใช้ทุกคน (All Users)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="logTypeSelect"><i class="fa-solid fa-filter"></i> ประเภทกิจกรรม:</label>
+                            <select id="logTypeSelect" class="form-select" onchange="filterActivityLogs()">
+                                <option value="ALL">ทุกประเภท (ALL)</option>
+                                <option value="INBOUND">INBOUND (รับเข้า)</option>
+                                <option value="OUTBOUND">OUTBOUND (จ่ายออก)</option>
+                                <option value="RELOCATE">RELOCATE (ย้ายพิกัด)</option>
+                                <option value="DELETE">DELETE (ลบสินค้า)</option>
+                                <option value="UPDATE">UPDATE (แก้ไขข้อมูล)</option>
+                                <option value="AUTH">AUTH (เข้า/ออกจากระบบ)</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="table-responsive">
                         <table class="modern-table">
                             <thead>
                                 <tr>
-                                    <th style="width:60px; text-align:center;">#</th>
-                                    <th style="width:160px;">วัน-เวลา</th>
-                                    <th style="width:160px;">ผู้ใช้งาน (User)</th>
-                                    <th style="width:130px;">ประเภท</th>
-                                    <th>รายละเอียดการใช้งาน</th>
-                                    <th style="width:160px;">S/N ที่เกี่ยวข้อง</th>
+                                    <th style="width:40px; text-align:center;">#</th>
+                                    <th style="width:140px;">วันที่/เวลา</th>
+                                    <th>ผู้ทำรายการ</th>
+                                    <th>กิจกรรม</th>
+                                    <th>รายละเอียด</th>
+                                    <th>S/N เป้าหมาย</th>
                                 </tr>
                             </thead>
                             <tbody id="activityLogsTableBody">
-                                <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> กำลังดึงประวัติ...</td></tr>
+                                <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);">กำลังโหลดประวัติ...</td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
             </section>
 
-            <!-- VIEW 7: SETTINGS & SYSTEM CONFIG -->
+            <!-- 🟢 VIEW 7: ตั้งค่าพิกัดคลังสินค้า (settings-db.js) -->
             <section id="view-settings" class="view-section">
-                <div class="settings-hero-banner">
-                    <div>
-                        <h2 style="font-size:1.4rem; font-weight:800; margin-bottom:4px;"><i class="fa-solid fa-gears"></i> ตั้งค่าพิกัดคลังสินค้า และตรวจสอบการเชื่อมต่อฐานข้อมูล</h2>
-                        <p style="font-size:0.85rem; color:#cbd5e1;">จัดการความจุพิกัด ตรวจสอบตารางฐานข้อมูล Supabase ที่เชื่อมต่อในแต่ละเมนู (Admin Only)</p>
-                    </div>
-                    <div style="display:flex; gap:8px;">
-                        <button class="btn btn-sm btn-primary" id="testDbConnBtn" onclick="testDatabaseConnectionRealtime()"><i class="fa-solid fa-plug"></i> ทดสอบการเชื่อมต่อ Realtime</button>
-                        <button class="btn btn-sm btn-secondary" style="background:rgba(255,255,255,0.1); color:#fff;" onclick="loadWarehouseConfigsFromDB(); loadUsersFromDB();"><i class="fa-solid fa-rotate"></i> รีเฟรช</button>
-                    </div>
+                <div class="card-header">
+                    <h2 class="card-title"><i class="fa-solid fa-gears" style="color:var(--primary);"></i> ตั้งค่าพิกัดคลังสินค้า & การจัดการระบบ</h2>
+                    <button id="testDbConnBtn" type="button" class="btn btn-sm btn-secondary" onclick="testDatabaseConnectionRealtime()">
+                        <i class="fa-solid fa-plug-circle-check"></i> ทดสอบการเชื่อมต่อ Realtime
+                    </button>
                 </div>
 
-                <!-- 🟢 ตารางตรวจสอบการเชื่อมต่อฐานข้อมูลในแต่ละเมนูระบบ -->
-                <div class="settings-section-card">
-                    <div class="card-header" style="border-bottom:none; margin-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
-                        <div class="card-title" style="font-size:1.1rem;"><i class="fa-solid fa-database" style="color:var(--primary);"></i> รายงานโครงสร้างการเชื่อมต่อฐานข้อมูล Supabase แยกตามเมนูระบบ (System DB Mapping)</div>
-                        <span class="badge-action auth"><i class="fa-solid fa-user-shield"></i> เฉพาะแอดมิน (Admin Only)</span>
-                    </div>
-                    <div style="font-size:0.82rem; color:var(--text-muted); margin-bottom:1rem;">
-                        แสดงความสัมพันธ์ระหว่างเมนูการใช้งานหน้าเว็บไซต์และชื่อตาราง (Database Table) ใน Supabase พร้อมตรวจสอบสถานะการเชื่อมต่อแบบ Realtime
+                <div id="inboundMasterProductsStatText" style="background:var(--primary-light); color:var(--primary-text); padding:12px; border-radius:8px; font-weight:700; margin-bottom:1rem; border:1px solid var(--primary-border);">
+                    กำลังตรวจสอบฐานข้อมูล Master Products...
+                </div>
+
+                <!-- 1. ตั้งค่าโครงสร้างคลัง -->
+                <div class="card">
+                    <div class="card-title" style="margin-bottom:12px;"><i class="fa-solid fa-cubes-stacked"></i> กำหนดโครงสร้างแถวและแร็กจัดเก็บสินค้า</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-subtle); padding:1rem; border-radius:10px; margin-bottom:1rem;">
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <input type="text" id="newAisleInput" class="form-control mono font-bold" placeholder="ชื่อแถวใหม่ เช่น H" style="width:140px; text-transform:uppercase;">
+                            <button type="button" class="btn btn-primary" onclick="addNewAisleConfig()"><i class="fa-solid fa-plus"></i> เพิ่มแถว</button>
+                        </div>
+                        <button type="button" class="btn btn-success" onclick="saveAllWarehouseConfigsToDB()"><i class="fa-solid fa-floppy-disk"></i> บันทึกโครงสร้างลง DB</button>
                     </div>
 
                     <div class="table-responsive">
                         <table class="modern-table">
                             <thead>
                                 <tr>
-                                    <th style="width:50px; text-align:center;">#</th>
-                                    <th style="width:200px;"><i class="fa-solid fa-list"></i> หัวข้อ / เมนูระบบ</th>
-                                    <th style="width:240px;"><i class="fa-solid fa-server"></i> ตารางฐานข้อมูล (Supabase Table)</th>
-                                    <th style="width:180px; text-align:center;"><i class="fa-solid fa-signal"></i> สถานะการเชื่อมต่อ DB</th>
-                                    <th><i class="fa-solid fa-circle-info"></i> คำอธิบายบทบาทการเชื่อมต่อข้อมูล</th>
+                                    <th style="width:40px; text-align:center;">#</th>
+                                    <th>ชื่อแถว (Aisle)</th>
+                                    <th style="text-align:center;">จำนวนล็อก (Bays)</th>
+                                    <th style="text-align:center;">จำนวนชั้น (Shelves)</th>
+                                    <th style="text-align:center;">ช่อง/ชั้น (Slots)</th>
+                                    <th style="text-align:center;">จัดเก็บอยู่จริง</th>
+                                    <th style="text-align:center;">เรียงลำดับ</th>
+                                    <th style="text-align:center;">สถานะล็อก</th>
+                                    <th style="text-align:center;">ดำเนินการ</th>
                                 </tr>
-                            </thead>
-                            <tbody id="menuDbMappingTableBody">
-                                <tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> กำลังตรวจสอบการเชื่อมต่อตารางฐานข้อมูล...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="settings-section-card">
-                    <div class="card-header" style="border-bottom:none; margin-bottom:0.5rem;">
-                        <div class="card-title" style="font-size:1.1rem;"><i class="fa-solid fa-layer-group" style="color:var(--primary);"></i> ตั้งค่าโครงสร้างแถวจัดเก็บ (Aisle Configurations Realtime)</div>
-                    </div>
-
-                    <div class="settings-bar-container">
-                        <div style="display:flex; align-items:center; gap:10px; flex:1;">
-                            <input type="text" id="newAisleInput" class="form-control mono font-bold" placeholder="ชื่อแถวใหม่ เช่น E">
-                            <button class="btn btn-primary" style="white-space:nowrap;" onclick="addNewAisleConfig()"><i class="fa-solid fa-plus"></i> เพิ่มแถวใหม่</button>
-                        </div>
-                        <button class="btn btn-success" onclick="saveAllWarehouseConfigsToDB()"><i class="fa-solid fa-floppy-disk"></i> บันทึกโครงสร้างลง DB</button>
-                    </div>
-
-                    <div class="table-responsive">
-                        <table class="modern-table">
-                            <thead>
-                                <tr><th style="width:60px; text-align:center;">ลำดับ</th><th style="width:160px;">ชื่อแถว (Aisle)</th><th style="width:150px; text-align:center;">ล็อก</th><th style="width:150px; text-align:center;">ชั้น</th><th style="width:150px; text-align:center;">ช่อง</th><th style="width:130px; text-align:center;">สะสม</th><th style="width:180px; text-align:center;">จัดการ</th></tr>
                             </thead>
                             <tbody id="aisleSettingsTableBody"></tbody>
                         </table>
                     </div>
                 </div>
 
-                <div class="settings-section-card">
-                    <div class="card-header" style="border-bottom:none; margin-bottom:1rem;">
-                        <div class="card-title" style="font-size:1.1rem;"><i class="fa-solid fa-users-gear" style="color:var(--primary);"></i> จัดการบัญชีผู้ใช้งานและกำหนดสิทธิ์</div>
-                        <button class="btn btn-sm btn-primary" onclick="openCreateUserModal()"><i class="fa-solid fa-user-plus"></i> เพิ่มผู้ใช้งานใหม่</button>
+                <!-- 2. จัดการผู้ใช้งาน -->
+                <div class="card">
+                    <div class="card-header" style="border:none; padding-bottom:0;">
+                        <div class="card-title"><i class="fa-solid fa-users-gear"></i> การจัดการสิทธิ์และบัญชีผู้ใช้งาน</div>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="openCreateUserModal()"><i class="fa-solid fa-user-plus"></i> เพิ่มผู้ใช้งานใหม่</button>
                     </div>
+                    <div class="table-responsive" style="margin-top:10px;">
+                        <table class="modern-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:40px; text-align:center;">#</th>
+                                    <th>Username</th>
+                                    <th>ชื่อ-นามสกุล</th>
+                                    <th>แผนก/ฝ่าย</th>
+                                    <th>สิทธิ์ (Role)</th>
+                                    <th style="text-align:center;">ประวัติ</th>
+                                    <th style="text-align:center;">แก้ไข</th>
+                                    <th style="text-align:center;">จัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="userManagementTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
 
+                <!-- 3. ผังจับคู่เมนูกับ DB -->
+                <div class="card">
+                    <div class="card-title" style="margin-bottom:12px;"><i class="fa-solid fa-database"></i> ผังการเชื่อมโยงเมนูกับตารางฐานข้อมูล Supabase</div>
                     <div class="table-responsive">
                         <table class="modern-table">
                             <thead>
-                                <tr><th style="width:60px; text-align:center;">#</th><th>Username</th><th>ชื่อ-นามสกุล</th><th>แผนก</th><th>ระดับสิทธิ์</th><th style="text-align:center; width:130px;">ดูประวัติ</th><th style="text-align:center; width:90px;">แก้ไข</th><th style="text-align:center; width:90px;">ลบ</th></tr>
+                                <tr>
+                                    <th style="width:40px; text-align:center;">#</th>
+                                    <th>ชื่อเมนูระบบ</th>
+                                    <th>ตาราง DB ที่เชื่อมโยง</th>
+                                    <th>สถานะการซิงค์</th>
+                                    <th>คำอธิบายหน้าที่</th>
+                                </tr>
                             </thead>
-                            <tbody id="userManagementTableBody"></tbody>
+                            <tbody id="menuDbMappingTableBody"></tbody>
                         </table>
                     </div>
                 </div>
             </section>
         </main>
     </div>
+</div>
 
-    <!-- MODALS & OVERLAYS -->
-    <div id="pendingApprovalNoticeModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 480px; max-width: 90vw; text-align:center; border-top: 5px solid var(--warning); padding:2rem;">
-            <div style="width:65px; height:65px; background:var(--warning-light); color:var(--warning); border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:1.8rem; margin-bottom:1rem;">
-                <i class="fa-solid fa-hourglass-half fa-spin"></i>
-            </div>
-            <h3 style="font-weight: 800; font-size: 1.25rem; color: var(--text-main); margin-bottom: 6px;">ส่งคำขอไปยังผู้ดูแลระบบเรียบร้อย</h3>
-            <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:1.2rem;">รายการนี้ถูกบันทึกเข้าฐานข้อมูลแล้ว และ<strong style="color:var(--warning);">กำลังรอการอนุมัติจากผู้ดูแลระบบ (Admin)</strong> ก่อนดำเนินการขั้นต่อไป</p>
-            <div style="background:var(--bg-subtle); padding:12px; border-radius:8px; margin-bottom:1.5rem; text-align:left; font-size:0.85rem; border:1px solid var(--border-color);" id="pendingNoticeDetails"></div>
-            <button type="button" class="btn btn-primary" style="width:100%; padding:10px;" onclick="closePendingNoticeModal()">
-                <i class="fa-solid fa-check"></i> รับทราบ
-            </button>
-        </div>
-    </div>
+<!-- 🟢 6. MODAL WINDOWS ทั้งหมด 9 ชุด -->
 
-    <div id="adminGuardModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 440px; max-width: 90vw; text-align:center; border-top: 5px solid var(--danger); padding:2rem;">
-            <div style="width:65px; height:65px; background:var(--danger-light); color:var(--danger); border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:1.8rem; margin-bottom:1rem;">
-                <i class="fa-solid fa-user-shield"></i>
-            </div>
-            <h3 style="font-weight: 800; font-size: 1.25rem; color: var(--text-main); margin-bottom: 6px;">ยืนยันสิทธิ์ผู้ดูแลระบบ (Admin Only)</h3>
-            <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.2rem;">กรุณากรอกรหัสผ่านผู้ดูแลระบบเพื่อเข้าใช้งานเมนูที่ต้องการ</p>
-            <div style="background:var(--bg-subtle); padding:8px; border-radius:8px; margin-bottom:1.2rem; border:1px solid var(--border-color); font-size:0.85rem;">
-                บัญชีปัจจุบัน: <strong id="adminGuardAccountName" class="mono" style="color:var(--primary-text);">admin</strong>
-            </div>
-            <form onsubmit="verifyAdminGuardPassword(event)">
-                <input type="hidden" id="adminGuardTargetView" value="view-settings">
-                <div class="form-group" style="text-align:left;">
-                    <label style="font-size:0.8rem;"><i class="fa-solid fa-key"></i> รหัสผ่านผู้ดูแลระบบ (Admin Password)</label>
-                    <input type="password" id="adminGuardPasswordInput" class="form-control mono" placeholder="••••••••" required style="text-align:center; font-size:1.2rem; letter-spacing:3px;" autofocus autocomplete="off">
-                </div>
-                <div style="display:flex; gap:0.5rem; margin-top:1.2rem;">
-                    <button type="submit" class="btn btn-primary" style="flex:1; padding:10px;"><i class="fa-solid fa-shield-check"></i> ยืนยันสิทธิ์และเข้าหน้าเมนู</button>
-                    <button type="button" class="btn btn-secondary" onclick="closeAdminGuardModal()">ยกเลิก</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div id="adminApprovalModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 440px; max-width: 90vw; text-align:center; border-top: 5px solid var(--primary); padding:2rem;">
-            <div style="width:65px; height:65px; background:var(--primary-light); color:var(--primary); border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:1.8rem; margin-bottom:1rem;">
-                <i class="fa-solid fa-lock"></i>
-            </div>
-            <h3 style="font-weight: 800; font-size: 1.25rem; color: var(--text-main); margin-bottom: 6px;">อนุมัติการทำรายการ</h3>
-            <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">ต้องการสิทธิ์ Admin เพื่อทำรายการนี้:</p>
-            <div style="background:var(--bg-subtle); padding:10px; border-radius:8px; margin-bottom:1.2rem; font-size:0.88rem; font-weight:700; color:var(--primary-text);" id="approvalActionText"></div>
-            <form onsubmit="verifyAdminApprovalPassword(event)">
-                <div class="form-group" style="text-align:left;">
-                    <label style="font-size:0.8rem;"><i class="fa-solid fa-key"></i> รหัสผ่าน Admin</label>
-                    <input type="password" id="adminApprovalPasswordInput" class="form-control mono" placeholder="••••••••" required style="text-align:center; font-size:1.2rem; letter-spacing:3px;" autofocus autocomplete="off">
-                </div>
-                <div style="display:flex; gap:0.5rem; margin-top:1.2rem;">
-                    <button type="submit" class="btn btn-primary" style="flex:1; padding:10px;"><i class="fa-solid fa-check"></i> อนุมัติ</button>
-                    <button type="button" class="btn btn-secondary" onclick="closeAdminApprovalModal()">ยกเลิก</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div id="userHistoryAuditModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 780px; max-width: 95vw; max-height: 90vh; overflow-y:auto;">
-            <div class="card-header">
-                <div class="card-title"><i class="fa-solid fa-user-clock" style="color:var(--primary);"></i> ประวัติกิจกรรมผู้ใช้งานอย่างละเอียด</div>
-                <button class="btn btn-secondary" style="padding:4px 8px;" onclick="closeUserHistoryAuditModal()">&times;</button>
-            </div>
-            <div style="background:var(--bg-subtle); padding:1rem; border-radius:var(--radius-md); margin-bottom:1rem; display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; font-size:0.88rem;">
-                <div>Username: <strong id="auditTargetUsername" class="mono" style="color:var(--primary-text);">-</strong></div>
-                <div>ชื่อ-นามสกุล: <strong id="auditTargetFullName">-</strong></div>
-                <div>แผนก: <span id="auditTargetDept">-</span></div>
-                <div>สิทธิ์: <span id="auditTargetRole" class="badge-action auth">-</span></div>
-            </div>
-            <div style="display:flex; gap:0.6rem; margin-bottom:1rem; flex-wrap:wrap;">
-                <input type="text" id="auditModalSearchInput" class="form-control" style="max-width:260px;" placeholder="🔍 ค้นหาในประวัติผู้ใช้นี้..." oninput="filterIndividualAuditLogs()">
-                <select id="auditModalTypeFilter" class="form-select" style="max-width:200px;" onchange="filterIndividualAuditLogs()">
-                    <option value="ALL">⚡ ประเภทกิจกรรมทั้งหมด</option>
-                    <option value="INBOUND">รับเข้า (INBOUND)</option>
-                    <option value="OUTBOUND">จ่ายออก (OUTBOUND)</option>
-                    <option value="RELOCATE">ย้ายตำแหน่ง (RELOCATE)</option>
-                    <option value="DELETE">ลบสินค้า (DELETE)</option>
-                    <option value="UPDATE">แก้ไขข้อมูล (UPDATE)</option>
-                    <option value="AUTH">เข้า/ออกจากระบบ (AUTH)</option>
-                </select>
-                <button class="btn btn-sm btn-secondary" onclick="refreshSingleUserLogs()"><i class="fa-solid fa-rotate"></i> รีเฟรช</button>
-            </div>
-            <div class="table-responsive">
-                <table class="modern-table">
-                    <thead>
-                        <tr>
-                            <th style="width:50px; text-align:center;">#</th>
-                            <th style="width:160px;">วัน-เวลา</th>
-                            <th style="width:120px;">ประเภท</th>
-                            <th>รายละเอียดกิจกรรม</th>
-                            <th style="width:150px;">S/N ที่เกี่ยวข้อง</th>
-                        </tr>
-                    </thead>
-                    <tbody id="individualAuditLogsTableBody">
-                        <tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> กำลังโหลด...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
-    <div id="createUserModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 480px; max-width: 90vw;">
-            <div class="card-header">
-                <div class="card-title"><i class="fa-solid fa-user-gear" style="color:var(--primary);"></i> <span id="userModalTitle">เพิ่มผู้ใช้งานใหม่</span></div>
-                <button class="btn btn-secondary" style="padding:4px 8px;" onclick="closeCreateUserModal()">&times;</button>
-            </div>
-            <form onsubmit="submitUserForm(event)" autocomplete="off">
-                <input type="hidden" id="userFormId">
-                <div class="form-group"><label>ชื่อผู้ใช้งาน (Username)</label><input type="text" id="userFormUsername" class="form-control mono font-bold" required placeholder="เช่น user01" autocomplete="off"></div>
-                <div class="form-group"><label>ชื่อ-นามสกุล</label><input type="text" id="userFormFullName" class="form-control" required placeholder="เช่น นายสมชาย ใจดี"></div>
-                <div class="form-group"><label>แผนก / ฝ่าย</label><input type="text" id="userFormDepartment" class="form-control" placeholder="เช่น แผนกคลังสินค้า"></div>
-                <div class="form-group"><label>รหัสผ่าน (Password)</label><input type="password" id="userFormPassword" class="form-control mono" required placeholder="••••••••" autocomplete="off"></div>
-                <div class="form-group" style="margin-bottom:1.2rem;">
-                    <label>ระดับสิทธิ์การใช้งาน (Role)</label>
-                    <select id="userFormRole" class="form-select font-bold">
-                        <option value="user">User - ผู้ใช้งานทั่วไป (ต้องผ่านการอนุมัติ)</option>
-                        <option value="admin">Admin - ผู้ดูแลระบบสูงสุด (อนุมัติรายการได้)</option>
-                    </select>
-                </div>
-                <div style="display:flex; gap:0.5rem;">
-                    <button type="submit" class="btn btn-primary" style="flex:1;"><i class="fa-solid fa-floppy-disk"></i> บันทึกข้อมูลผู้ใช้</button>
-                    <button type="button" class="btn btn-secondary" onclick="closeCreateUserModal()">ยกเลิก</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div id="changePasswordModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 420px; max-width: 90vw;">
-            <div class="card-header">
-                <div class="card-title"><i class="fa-solid fa-key" style="color:var(--primary);"></i> เปลี่ยนรหัสผ่านส่วนตัว</div>
-                <button class="btn btn-secondary" style="padding:4px 8px;" onclick="closeChangePasswordModal()">&times;</button>
-            </div>
-            <form onsubmit="submitChangePassword(event)" autocomplete="off">
-                <div class="form-group"><label>รหัสผ่านเดิม (Old Password)</label><input type="password" id="oldPasswordInput" class="form-control mono" required placeholder="••••••••" autocomplete="off"></div>
-                <div class="form-group"><label>รหัสผ่านใหม่ (New Password)</label><input type="password" id="newPasswordInput" class="form-control mono" required placeholder="••••••••" autocomplete="off"></div>
-                <div class="form-group" style="margin-bottom:1.2rem;"><label>ยืนยันรหัสผ่านใหม่ (Confirm Password)</label><input type="password" id="confirmNewPasswordInput" class="form-control mono" required placeholder="••••••••" autocomplete="off"></div>
-                <div style="display:flex; gap:0.5rem;">
-                    <button type="submit" class="btn btn-primary" style="flex:1;"><i class="fa-solid fa-floppy-disk"></i> บันทึกรหัสผ่านใหม่</button>
-                    <button type="button" class="btn btn-secondary" onclick="closeChangePasswordModal()">ยกเลิก</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div id="editItemModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 500px; max-width: 92vw;">
-            <div class="card-header">
-                <div class="card-title"><i class="fa-solid fa-pen-to-square" style="color:var(--primary);"></i> แก้ไขข้อมูลสินค้าในคลัง</div>
-                <button class="btn btn-secondary" style="padding:4px 8px;" onclick="closeEditItemModal()">&times;</button>
-            </div>
-            <form onsubmit="submitEditItemForm(event)">
-                <input type="hidden" id="editItemId">
-                <div class="form-group"><label>หมายเลขซีเรียล (S/N)</label><input type="text" id="editItemSn" class="form-control mono font-bold" required readonly style="background:var(--bg-subtle);"></div>
-                <div class="form-group"><label>รหัสสินค้า / SKU</label><input type="text" id="editItemCategory" class="form-control mono" required></div>
-                <div class="form-group"><label>ชื่อรุ่น / รายละเอียดสินค้า</label><input type="text" id="editItemName" class="form-control" required></div>
-                <div class="form-group"><label>เลขมิเตอร์ (Meter)</label><input type="number" id="editItemMeter" class="form-control mono" required min="0"></div>
-                <div class="form-group" style="margin-bottom:1.2rem;"><label>พิกัดจัดเก็บ</label><input type="text" id="editItemLocation" class="form-control mono font-bold" readonly style="background:var(--bg-subtle);"></div>
-                <div style="display:flex; gap:0.5rem;">
-                    <button type="submit" class="btn btn-primary" style="flex:1;"><i class="fa-solid fa-floppy-disk"></i> บันทึกแก้ไขลง DB</button>
-                    <button type="button" class="btn btn-secondary" onclick="closeEditItemModal()">ยกเลิก</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- MODAL พิมพ์บาร์โค้ดสติ๊กเกอร์ (ปรับปรุงการจัดหน้า Preview Realtime บนหน้าเว็บ) -->
-    <div id="printBarcodeModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 920px; max-width: 96vw; max-height: 92vh; overflow-y:auto;">
-            <div class="card-header">
-                <div class="card-title"><i class="fa-solid fa-print" style="color:var(--primary);"></i> เลือกรูปแบบและขนาดสติ๊กเกอร์ก่อนพิมพ์</div>
-                <button class="btn btn-secondary" style="padding:4px 8px;" onclick="closePrintBarcodeModal()">&times;</button>
-            </div>
-            <div class="form-grid" style="margin-bottom:1rem;">
-                <div class="form-group">
-                    <label>รูปแบบกระดาษและสติ๊กเกอร์:</label>
-                    <select id="thermalSizeSelect" class="form-select font-bold" onchange="updatePrintPreviewLayout()">
-                        <option value="A4">📄 กระดาษ A4 Grid เท่ากันสมบูรณ์ (24 บาร์โค้ดต่อหน้า)</option>
-                        <option value="50x30">🏷️ สติ๊กเกอร์ความร้อน Thermal 50 x 30 mm (พอดีเป๊ะ ไม่ล้น)</option>
-                        <option value="40x30">🏷️ สติ๊กเกอร์ความร้อน Thermal 40 x 30 mm (พอดีเป๊ะ ไม่ล้น)</option>
-                        <option value="100x75">📦 สติ๊กเกอร์พาเลท Thermal 100 x 75 mm (พาเลทมาตรฐาน)</option>
-                        <option value="100x150">📦 สติ๊กเกอร์ความร้อน Thermal 100 x 150 mm (ขนาดใหญ่)</option>
-                    </select>
-                </div>
-            </div>
-            <div style="background:#f8fafc; border:1px solid var(--border-strong); padding:1.2rem; border-radius:var(--radius-md); margin-bottom:1rem; color:#000;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
-                    <span style="font-weight:700; font-size:0.88rem; color:#000;"><i class="fa-solid fa-eye"></i> ตัวอย่างสติ๊กเกอร์ก่อนพิมพ์ (Live Preview):</span>
-                    <span id="printPreviewCountBadge" class="badge-location mono" style="font-size:0.8rem; background:var(--primary); color:#fff; padding:4px 10px; border-radius:6px; font-weight:700;">จำนวน 0 ใบ</span>
-                </div>
-                <!-- คอนเทนเนอร์แสดงผลตัวอย่างการพิมพ์สติ๊กเกอร์บาร์โค้ด -->
-                <div id="barcodePreviewArea" class="thermal-label-container" style="max-height:540px; overflow-y:auto; padding:16px; background:#f1f5f9; border:2px dashed #cbd5e1; border-radius:10px;"></div>
-            </div>
-            <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
-                <button class="btn btn-primary" onclick="triggerPDFPrintPreview()"><i class="fa-solid fa-print"></i> ยืนยันพิมพ์</button>
-                <button class="btn btn-secondary" onclick="closePrintBarcodeModal()">ยกเลิก</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="relocateModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 480px; max-width: 90vw;">
-            <div class="card-header">
-                <div class="card-title"><i class="fa-solid fa-right-left" style="color:var(--primary);"></i> ย้ายพิกัดจัดเก็บสินค้า</div>
-                <button class="btn btn-secondary" style="padding:4px 8px;" onclick="closeRelocateModal()">&times;</button>
-            </div>
-            <div style="background:var(--bg-subtle); padding:0.8rem; border-radius:var(--radius-md); margin-bottom:1rem; font-size:0.85rem;">
-                <div><strong>S/N:</strong> <span id="relocateItemSn" class="mono font-bold" style="color:var(--primary-text);"></span></div>
-                <div><strong>รุ่น:</strong> <span id="relocateItemName"></span></div>
-                <div><strong>พิกัดปัจจุบัน:</strong> <span id="relocateItemCurrentLoc" class="badge-location mono"></span></div>
-            </div>
-            <input type="hidden" id="relocateItemId">
+<!-- 6.1 เปลี่ยนรหัสผ่าน -->
+<div id="changePasswordModal" class="modal-overlay" style="display:none;">
+    <div class="card" style="width:100%; max-width:400px; padding:1.5rem;">
+        <div class="card-title" style="margin-bottom:1rem;"><i class="fa-solid fa-key"></i> เปลี่ยนรหัสผ่านส่วนตัว</div>
+        <form onsubmit="submitChangePassword(event)">
             <div class="form-group">
-                <label>เลือกพิกัดจัดเก็บใหม่ (New Location):</label>
-                <div class="form-grid">
-                    <div class="form-group"><label>แถว</label><select id="relocateAisleSelect" class="form-select mono" onchange="onRelocateAisleOrBayChange()"></select></div>
-                    <div class="form-group"><label>ล็อก</label><select id="relocateBaySelect" class="form-select mono" onchange="autoSelectAvailableRelocateSlot()"></select></div>
-                    <div class="form-group"><label>ชั้น</label><select id="relocateShelfSelect" class="form-select mono" onchange="updateRelocatePreview()"></select></div>
-                    <div class="form-group"><label>ช่อง</label><select id="relocateSlotSelect" class="form-select mono" onchange="updateRelocatePreview()"></select></div>
-                </div>
-            </div>
-            <div style="font-size:0.88rem; font-weight:700; color:var(--primary-text); margin-bottom:1rem; background:var(--primary-light); padding:8px 12px; border-radius:8px;">
-                พิกัดใหม่ที่จะบันทึก: <span id="relocatePreviewBadge" class="badge-location mono">DOCK</span>
-            </div>
-            <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-primary" style="flex:1;" onclick="submitRelocateLocation()"><i class="fa-solid fa-paper-plane"></i> ยืนยันย้ายพิกัด</button>
-                <button class="btn btn-secondary" onclick="closeRelocateModal()">ยกเลิก</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="batchRelocateModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 520px; max-width: 90vw;">
-            <div class="card-header">
-                <div class="card-title"><i class="fa-solid fa-arrows-split-up-and-left" style="color:var(--primary);"></i> ย้ายคลังทีละหลายรายการ (Batch Relocate)</div>
-                <button class="btn btn-secondary" style="padding:4px 8px;" onclick="closeBatchRelocateModal()">&times;</button>
-            </div>
-            <div style="background:var(--primary-light); padding:0.8rem; border-radius:var(--radius-md); margin-bottom:1rem; font-size:0.88rem;">
-                <div>รายการที่เลือกย้ายทั้งหมด: <strong id="batchRelocateTotalCount" style="color:var(--primary-text);">0</strong> รายการ</div>
+                <label for="oldPasswordInput">รหัสผ่านเดิม:</label>
+                <input type="password" id="oldPasswordInput" class="form-control" required>
             </div>
             <div class="form-group">
-                <label>เลือกแถวเป้าหมายที่ต้องการย้ายไป (Target Aisle):</label>
-                <select id="batchRelocateAisleSelect" class="form-select mono" onchange="updateBatchRelocateCapacityPreview()"></select>
-            </div>
-            <div id="batchCapacityPreviewText" style="font-size:0.82rem; font-weight:700; margin-bottom:1rem; background:var(--bg-subtle); padding:8px 12px; border-radius:6px;">กำลังคำนวณพื้นที่ว่าง...</div>
-            <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-primary" style="flex:1;" onclick="executeBatchRelocate()"><i class="fa-solid fa-paper-plane"></i> ยืนยันย้ายกลุ่ม</button>
-                <button class="btn btn-secondary" onclick="closeBatchRelocateModal()">ยกเลิก</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="deleteConfirmModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 460px; max-width: 90vw; border-top:5px solid var(--danger);">
-            <div class="card-header">
-                <div class="card-title" style="color:var(--danger);"><i class="fa-solid fa-triangle-exclamation"></i> ยืนยันคำขอลบรายการออกจากคลัง</div>
-                <button class="btn btn-secondary" style="padding:4px 8px;" onclick="closeDeleteConfirmModal()">&times;</button>
-            </div>
-            <div style="background:var(--danger-light); padding:1rem; border-radius:var(--radius-md); margin-bottom:1.25rem; font-size:0.88rem; color:var(--danger);">
-                <div style="font-weight:700; margin-bottom:6px;"><i class="fa-solid fa-circle-exclamation"></i> รายการที่ขอลบออกจากคลัง:</div>
-                <div id="deleteConfirmModalDetails" class="mono font-bold" style="max-height:120px; overflow-y:auto; background:var(--bg-subtle); padding:8px; border-radius:6px; margin-top:6px; color:var(--text-main);"></div>
-            </div>
-            <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-danger" style="flex:1;" id="executeDeleteBtn" onclick="executeDeleteAction()"><i class="fa-solid fa-trash"></i> ยืนยันการลบ</button>
-                <button class="btn btn-secondary" onclick="closeDeleteConfirmModal()">ยกเลิก</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="excelExportModal" class="modal-overlay" style="display:none;">
-        <div class="card" style="width: 480px; max-width: 90vw;">
-            <div class="card-header">
-                <div class="card-title"><i class="fa-solid fa-file-excel" style="color:var(--success);"></i> ส่งออก Excel</div>
-                <button class="btn btn-secondary" style="padding:4px 8px;" onclick="closeExcelExportModal()">&times;</button>
+                <label for="newPasswordInput">รหัสผ่านใหม่:</label>
+                <input type="password" id="newPasswordInput" class="form-control" required>
             </div>
             <div class="form-group">
-                <label>เงื่อนไขการส่งออกข้อมูล:</label>
-                <select id="exportScopeSelect" class="form-select" onchange="onExportScopeChange(this.value)">
-                    <option value="ALL">📦 ส่งออกข้อมูลสินค้าทั้งหมดในคลัง</option>
-                    <option value="AISLE">🧱 เลือกเจาะจงเฉพาะ แถวจัดเก็บ (Aisle)</option>
-                    <option value="FILTERED">🔍 เฉพาะข้อมูลที่ค้นหาเจอในตารางปัจจุบัน</option>
+                <label for="confirmNewPasswordInput">ยืนยันรหัสผ่านใหม่:</label>
+                <input type="password" id="confirmNewPasswordInput" class="form-control" required>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:1rem;">
+                <button type="button" class="btn btn-secondary" onclick="closeChangePasswordModal()">ยกเลิก</button>
+                <button type="submit" class="btn btn-primary">บันทึก</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 6.2 เพิ่ม/แก้ไข ผู้ใช้ -->
+<div id="createUserModal" class="modal-overlay" style="display:none;">
+    <div class="card" style="width:100%; max-width:450px; padding:1.5rem;">
+        <div id="userModalTitle" class="card-title" style="margin-bottom:1rem;"><i class="fa-solid fa-user-plus"></i> เพิ่มผู้ใช้งานใหม่</div>
+        <form onsubmit="submitUserForm(event)">
+            <input type="hidden" id="userFormId">
+            <div class="form-group">
+                <label for="userFormUsername">Username:</label>
+                <input type="text" id="userFormUsername" class="form-control mono font-bold" required>
+            </div>
+            <div class="form-group">
+                <label for="userFormFullName">ชื่อ-นามสกุล:</label>
+                <input type="text" id="userFormFullName" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="userFormDepartment">แผนก/ฝ่าย:</label>
+                <input type="text" id="userFormDepartment" class="form-control">
+            </div>
+            <div class="form-group">
+                <label for="userFormPassword">รหัสผ่าน:</label>
+                <input type="text" id="userFormPassword" class="form-control mono" required>
+            </div>
+            <div class="form-group">
+                <label for="userFormRole">สิทธิ์ในระบบ (Role):</label>
+                <select id="userFormRole" class="form-select">
+                    <option value="user">User (ผู้ใช้ทั่วไป - ต้องขออนุมัติ)</option>
+                    <option value="admin">Admin (ผู้ดูแลระบบ - อนุมัติได้ทันที)</option>
                 </select>
             </div>
-            <div class="form-group" id="exportAisleGroup" style="display:none;">
-                <label>เลือกแถวเป้าหมาย (Aisle):</label>
-                <select id="exportAisleSelect" class="form-select mono"></select>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:1rem;">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateUserModal()">ยกเลิก</button>
+                <button type="submit" class="btn btn-primary">บันทึกผู้ใช้</button>
             </div>
-            <div style="display:flex; gap:0.5rem; margin-top:1.25rem;">
-                <button class="btn btn-success" style="flex:1;" onclick="executeExcelExport()"><i class="fa-solid fa-download"></i> ดาวน์โหลด Excel</button>
-                <button class="btn btn-secondary" onclick="closeExcelExportModal()">ยกเลิก</button>
-            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 6.3 ประวัติกิจกรรมรายบุคคล -->
+<div id="userHistoryAuditModal" class="modal-overlay" style="display:none;">
+    <div class="card" style="width:100%; max-width:800px; padding:1.5rem; max-height:90vh; display:flex; flex-direction:column;">
+        <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-user-clock"></i> ประวัติกิจกรรม: <span id="auditTargetFullName" style="color:var(--primary);"></span> (<span id="auditTargetUsername" class="mono"></span>)</div>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="closeUserHistoryAuditModal()">&times;</button>
+        </div>
+        <div style="font-size:0.82rem; color:var(--text-sub); margin-bottom:10px;">
+            แผนก: <span id="auditTargetDept" class="font-bold"></span> | สิทธิ์: <span id="auditTargetRole" class="badge-action nav"></span>
+        </div>
+        <div class="form-grid" style="margin-bottom:10px;">
+            <input type="text" id="auditModalSearchInput" class="form-control" placeholder="ค้นหาในกิจกรรมผู้ใช้นี้..." oninput="filterIndividualAuditLogs()">
+            <select id="auditModalTypeFilter" class="form-select" onchange="filterIndividualAuditLogs()">
+                <option value="ALL">ทุกประเภทกิจกรรม</option>
+                <option value="INBOUND">INBOUND</option>
+                <option value="OUTBOUND">OUTBOUND</option>
+                <option value="RELOCATE">RELOCATE</option>
+                <option value="DELETE">DELETE</option>
+                <option value="UPDATE">UPDATE</option>
+            </select>
+        </div>
+        <div class="table-responsive" style="flex:1;">
+            <table class="modern-table">
+                <thead>
+                    <tr>
+                        <th style="width:40px; text-align:center;">#</th>
+                        <th>วันที่/เวลา</th>
+                        <th>ประเภท</th>
+                        <th>รายละเอียด</th>
+                        <th>S/N</th>
+                    </tr>
+                </thead>
+                <tbody id="individualAuditLogsTableBody"></tbody>
+            </table>
         </div>
     </div>
+</div>
 
-    <!-- TOAST NOTIFICATION -->
-    <div id="toastAlert" class="toast">
-        <i class="fa-solid fa-circle-check"></i>
-        <span id="toastMessage">ทำรายการสำเร็จ</span>
+<!-- 6.4 แก้ไขสินค้า -->
+<div id="editItemModal" class="modal-overlay" style="display:none;">
+    <div class="card" style="width:100%; max-width:450px; padding:1.5rem;">
+        <div class="card-title" style="margin-bottom:1rem;"><i class="fa-solid fa-pen-to-square"></i> แก้ไขข้อมูลสินค้า</div>
+        <form onsubmit="submitEditItemForm(event)">
+            <input type="hidden" id="editItemId">
+            <div class="form-group">
+                <label for="editItemSn">หมายเลขซีเรียล (S/N):</label>
+                <input type="text" id="editItemSn" class="form-control mono font-bold" readonly style="background:var(--bg-subtle);">
+            </div>
+            <div class="form-group">
+                <label for="editItemCategory">รหัสสินค้า (SKU):</label>
+                <input type="text" id="editItemCategory" class="form-control mono font-bold" required>
+            </div>
+            <div class="form-group">
+                <label for="editItemName">ชื่อรุ่น / รายละเอียด:</label>
+                <input type="text" id="editItemName" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="editItemMeter">เลขมิเตอร์:</label>
+                <input type="number" id="editItemMeter" class="form-control mono font-bold" required>
+            </div>
+            <div class="form-group">
+                <label for="editItemLocation">พิกัดปัจจุบัน:</label>
+                <input type="text" id="editItemLocation" class="form-control mono" readonly style="background:var(--bg-subtle);">
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:1rem;">
+                <button type="button" class="btn btn-secondary" onclick="closeEditItemModal()">ยกเลิก</button>
+                <button type="submit" class="btn btn-primary">บันทึกการแก้ไข</button>
+            </div>
+        </form>
     </div>
+</div>
 
-    <!-- SCRIPT INGESTION IN CORRECT DEPENDENCY ORDER -->
-    <script src="db-config.js"></script>
-    <script src="inv-db.js"></script>
-    <script src="inbound-db.js"></script>
-    <script src="outbound-db.js"></script>
-    <script src="locations-db.js"></script>
-    <script src="approvals-db.js"></script>
-    <script src="activities-db.js"></script>
-    <script src="settings-db.js"></script>
-    <script src="auth-system.js"></script>
-    <script src="app-main.js"></script>
+<!-- 6.5 ย้ายพิกัดสินค้าเดี่ยว -->
+<div id="relocateModal" class="modal-overlay" style="display:none;">
+    <div class="card" style="width:100%; max-width:480px; padding:1.5rem;">
+        <div class="card-title" style="margin-bottom:1rem;"><i class="fa-solid fa-right-left"></i> ย้ายพิกัดจัดเก็บสินค้า</div>
+        <input type="hidden" id="relocateItemId">
+        <div style="background:var(--bg-subtle); padding:10px; border-radius:8px; font-size:0.88rem; margin-bottom:1rem;">
+            S/N: <strong id="relocateItemSn" class="mono"></strong><br>
+            ชื่อรุ่น: <span id="relocateItemName"></span><br>
+            พิกัดเดิม: <span id="relocateItemCurrentLoc" class="badge-location mono"></span>
+        </div>
+
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="relocateAisleSelect">แถวใหม่:</label>
+                <select id="relocateAisleSelect" class="form-select" onchange="onRelocateAisleOrBayChange()"></select>
+            </div>
+            <div class="form-group">
+                <label for="relocateBaySelect">ล็อกใหม่:</label>
+                <select id="relocateBaySelect" class="form-select" onchange="autoSelectAvailableRelocateSlot()"></select>
+            </div>
+            <div class="form-group">
+                <label for="relocateShelfSelect">ชั้นใหม่:</label>
+                <select id="relocateShelfSelect" class="form-select" onchange="updateRelocatePreview()"></select>
+            </div>
+            <div class="form-group">
+                <label for="relocateSlotSelect">ช่องใหม่:</label>
+                <select id="relocateSlotSelect" class="form-select" onchange="updateRelocatePreview()"></select>
+            </div>
+        </div>
+
+        <div style="text-align:center; margin-top:12px; font-size:0.9rem;">
+            พิกัดใหม่ที่เลือก: <span id="relocatePreviewBadge" class="badge-location mono" style="font-size:1.05rem;">A-01-1-01</span>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:1.2rem;">
+            <button type="button" class="btn btn-secondary" onclick="closeRelocateModal()">ยกเลิก</button>
+            <button type="button" class="btn btn-primary" onclick="submitRelocateLocation()">ยืนยันย้ายพิกัด</button>
+        </div>
+    </div>
+</div>
+
+<!-- 6.6 ย้ายพิกัดกลุ่ม -->
+<div id="batchRelocateModal" class="modal-overlay" style="display:none;">
+    <div class="card" style="width:100%; max-width:450px; padding:1.5rem;">
+        <div class="card-title" style="margin-bottom:1rem;"><i class="fa-solid fa-boxes-packing"></i> ย้ายพิกัดสินค้ารวม (<span id="batchRelocateTotalCount">0</span> รายการ)</div>
+        <div class="form-group">
+            <label for="batchRelocateAisleSelect">เลือกแถวเป้าหมายอัตโนมัติ:</label>
+            <select id="batchRelocateAisleSelect" class="form-select" onchange="updateBatchRelocateCapacityPreview()"></select>
+        </div>
+        <div id="batchCapacityPreviewText" class="mono font-bold" style="font-size:0.85rem; margin-bottom:1rem;">
+            กำลังคำนวณพื้นที่ว่าง...
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+            <button type="button" class="btn btn-secondary" onclick="closeBatchRelocateModal()">ยกเลิก</button>
+            <button type="button" class="btn btn-primary" onclick="executeBatchRelocate()">ยืนยันย้ายกลุ่ม</button>
+        </div>
+    </div>
+</div>
+
+<!-- 6.7 ยืนยันการลบ -->
+<div id="deleteConfirmModal" class="modal-overlay" style="display:none;">
+    <div class="card" style="width:100%; max-width:420px; padding:1.5rem; text-align:center;">
+        <div style="font-size:2.5rem; color:var(--danger); margin-bottom:0.5rem;"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <h3 style="margin-bottom:0.5rem;">ยืนยันลบสินค้าออกจากคลัง?</h3>
+        <p id="deleteConfirmModalDetails" class="mono font-bold" style="font-size:0.88rem; color:var(--text-sub); margin-bottom:1.2rem; word-break:break-all;"></p>
+        <div style="display:flex; justify-content:center; gap:10px;">
+            <button type="button" class="btn btn-secondary" onclick="closeDeleteConfirmModal()">ยกเลิก</button>
+            <button type="button" class="btn btn-danger" id="btnConfirmDeleteExecute" onclick="executeDeleteActionWithMode('DIRECT')">ยืนยันลบสินค้า</button>
+        </div>
+    </div>
+</div>
+
+<!-- 6.8 ส่งออก Excel -->
+<div id="excelExportModal" class="modal-overlay" style="display:none;">
+    <div class="card" style="width:100%; max-width:420px; padding:1.5rem;">
+        <div class="card-title" style="margin-bottom:1rem;"><i class="fa-solid fa-file-excel" style="color:var(--success);"></i> ส่งออกข้อมูลสต็อก (Excel)</div>
+        <div class="form-group">
+            <label for="exportScopeSelect">ขอบเขตข้อมูลที่ต้องการส่งออก:</label>
+            <select id="exportScopeSelect" class="form-select" onchange="onExportScopeChange(this.value)">
+                <option value="ALL">📦 ข้อมูลสินค้าทั้งหมดในคลัง</option>
+                <option value="FILTERED">🔍 เฉพาะข้อมูลที่กรองอยู่ในตาราง</option>
+                <option value="AISLE">📍 เฉพาะสินค้าในแถวที่เลือก</option>
+            </select>
+        </div>
+        <div class="form-group" id="exportAisleGroup" style="display:none;">
+            <label for="exportAisleSelect">เลือกแถวสินค้า:</label>
+            <select id="exportAisleSelect" class="form-select"></select>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:1.2rem;">
+            <button type="button" class="btn btn-secondary" onclick="closeExcelExportModal()">ยกเลิก</button>
+            <button type="button" class="btn btn-success" onclick="executeExcelExport()"><i class="fa-solid fa-download"></i> ดาวน์โหลด Excel</button>
+        </div>
+    </div>
+</div>
+
+<!-- 6.9 พิมพ์บาร์โค้ดสติ๊กเกอร์ -->
+<div id="printBarcodeModal" class="modal-overlay" style="display:none;">
+    <div class="card" style="width:100%; max-width:900px; padding:1.5rem; max-height:92vh; display:flex; flex-direction:column;">
+        <div class="card-header">
+            <div class="card-title"><i class="fa-solid fa-print"></i> พรีวิวบาร์โค้ดสติ๊กเกอร์ (<span id="printPreviewCountBadge">0 ใบ</span>)</div>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <select id="thermalSizeSelect" class="form-select" onchange="updatePrintPreviewLayout()" style="width:180px;">
+                    <option value="50x30">50 x 30 mm (Thermal)</option>
+                    <option value="40x30">40 x 30 mm (Thermal)</option>
+                    <option value="100x75">100 x 75 mm (Shipping)</option>
+                    <option value="100x150">100 x 150 mm (Large)</option>
+                    <option value="A4">กระดาษ A4 (3x8 = 24 บาร์โค้ด)</option>
+                </select>
+                <button type="button" class="btn btn-primary" onclick="triggerPDFPrintPreview()"><i class="fa-solid fa-print"></i> สั่งพิมพ์</button>
+                <button type="button" class="btn btn-secondary" onclick="closePrintBarcodeModal()">&times;</button>
+            </div>
+        </div>
+
+        <div id="barcodePreviewArea" style="flex:1; overflow-y:auto; padding:10px; background:var(--bg-subtle); border-radius:8px;"></div>
+    </div>
+</div>
+
+<!-- 🟢 7. กล่องแสดง Toast Notification -->
+<div id="toastAlert" class="toast">
+    <i class="fa-solid fa-circle-info"></i>
+    <span id="toastMessage">ข้อความแจ้งเตือน</span>
+</div>
+
+<!-- 🟢 8. โหลดไฟล์ Script Engines ทั้งหมดตามลำดับการพึ่งพา (Dependency Order) -->
+<script src="db-config.js"></script>
+<script src="utils.js"></script>
+<script src="navigation.js"></script>
+<script src="auth-system.js"></script>
+<script src="inv-db.js"></script>
+<script src="inbound-db.js"></script>
+<script src="outbound-db.js"></script>
+<script src="locations-db.js"></script>
+<script src="approvals-db.js"></script>
+<script src="activities-db.js"></script>
+<script src="settings-db.js"></script>
+<script src="app-main.js"></script>
+
 </body>
 </html>

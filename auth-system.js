@@ -26,7 +26,6 @@ function resetAutoLogoutTimer() {
     }, AUTO_LOGOUT_TIMEOUT_MS);
 }
 
-// 🟢 ระบบตรวจสอบสถานะ Realtime ว่าบัญชีปัจจุบันถูก Admin เตะออกจากระบบหรือไม่
 async function checkUserSessionStatus() {
     if (!currentUser || !navigator.onLine) return;
     try {
@@ -40,13 +39,10 @@ async function checkUserSessionStatus() {
             .maybeSingle();
 
         if (!error && data && (data.is_kicked || data.force_logout)) {
-            // ล้างสถานะคำสั่งเตะออกในฐานข้อมูลเพื่อให้เข้าใหม่ได้ในภายหลัง
             await client.from('profiles').update({ is_kicked: false, force_logout: false }).ilike('username', currentUser.username);
             handleSystemLogout("⚠️ คุณถูกผู้ดูแลระบบ (Admin) สั่งให้ออกจากระบบทันที");
         }
-    } catch(e) {
-        // Safe Catch
-    }
+    } catch(e) {}
 }
 
 function initSecurityListeners() {
@@ -66,21 +62,24 @@ async function loadUsersFromDB() {
         }
 
         if (navigator.onLine) {
-            const { data, error } = await _supabase
-                .from('profiles')
-                .select('*')
-                .order('created_at', { ascending: true });
+            const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : _supabase;
+            if (client) {
+                const { data, error } = await client
+                    .from('profiles')
+                    .select('*')
+                    .order('created_at', { ascending: true });
 
-            if (!error && data && data.length > 0) {
-                systemUsers = data.map(u => ({
-                    id: u.id,
-                    username: u.username,
-                    password: u.password || '123456',
-                    name: u.full_name || u.name || u.username,
-                    department: u.department || 'แผนกคลังสินค้า',
-                    role: u.role || 'user'
-                }));
-                localStorage.setItem('WMS_USERS', JSON.stringify(systemUsers));
+                if (!error && data && data.length > 0) {
+                    systemUsers = data.map(u => ({
+                        id: u.id,
+                        username: u.username,
+                        password: u.password || '123456',
+                        name: u.full_name || u.name || u.username,
+                        department: u.department || 'แผนกคลังสินค้า',
+                        role: u.role || 'user'
+                    }));
+                    localStorage.setItem('WMS_USERS', JSON.stringify(systemUsers));
+                }
             }
         }
     } catch(e) {
@@ -102,13 +101,17 @@ async function initAuthSystem() {
         
         if (elapsed < AUTO_LOGOUT_TIMEOUT_MS) {
             currentUser = JSON.parse(savedUserStr);
-            document.getElementById('loginOverlay').style.display = 'none';
-            document.getElementById('currentUserNameText').textContent = `${currentUser.name} (${currentUser.username})`;
+            const loginOverlay = document.getElementById('loginOverlay');
+            if (loginOverlay) loginOverlay.style.display = 'none';
+            
+            const nameElem = document.getElementById('currentUserNameText');
+            if (nameElem) nameElem.textContent = `${currentUser.name} (${currentUser.username})`;
             
             resetAutoLogoutTimer();
             initSecurityListeners();
-            renderSidebarMenu();
-            showToast(`👋 ยินดีต้อนรับกลับ คุณ ${currentUser.name}`);
+            if (typeof renderSidebarMenu === 'function') renderSidebarMenu();
+            if (typeof handleHashRouting === 'function') handleHashRouting();
+            if (typeof showToast === 'function') showToast(`👋 ยินดีต้อนรับกลับ คุณ ${currentUser.name}`);
             return;
         }
     }
@@ -122,51 +125,60 @@ function forceShowLoginOverlay() {
     if (sessionCheckInterval) clearInterval(sessionCheckInterval);
     localStorage.removeItem('WMS_ACTIVE_USER');
     localStorage.removeItem('WMS_LAST_ACTIVE_TIME');
-    document.getElementById('loginOverlay').style.display = 'flex';
-    document.getElementById('loginUsername').value = '';
-    document.getElementById('loginPassword').value = '';
-    document.getElementById('loginUsername').focus();
+    
+    const loginOverlay = document.getElementById('loginOverlay');
+    if (loginOverlay) loginOverlay.style.display = 'flex';
+    
+    const uInput = document.getElementById('loginUsername');
+    const pInput = document.getElementById('loginPassword');
+    if (uInput) uInput.value = '';
+    if (pInput) pInput.value = '';
+    if (uInput) uInput.focus();
 }
 
 async function handleSystemLogin(e) {
     if (e) e.preventDefault();
     
     if (loginFailedAttempts >= 5) {
-        document.getElementById('loginErrorMsg').textContent = '⚠️ พิมพ์ผิดเกินกำหนด กรุณารอ 30 วินาที!';
-        document.getElementById('loginErrorAlert').style.display = 'block';
+        const errAlert = document.getElementById('loginErrorAlert');
+        const errText = document.getElementById('loginErrorMsg');
+        if (errText) errText.textContent = '⚠️ พิมพ์ผิดเกินกำหนด กรุณารอ 30 วินาที!';
+        if (errAlert) errAlert.style.display = 'block';
         return;
     }
 
-    const uInput = document.getElementById('loginUsername').value.trim();
-    const pInput = document.getElementById('loginPassword').value.trim();
+    const uInput = (document.getElementById('loginUsername')?.value || '').trim();
+    const pInput = (document.getElementById('loginPassword')?.value || '').trim();
 
     if (!uInput || !pInput) return;
 
-    showToast("⏳ กำลังตรวจสอบสิทธิ์...");
+    if (typeof showToast === 'function') showToast("⏳ กำลังตรวจสอบสิทธิ์...");
 
     let foundUser = null;
 
     if (navigator.onLine) {
         try {
-            const { data, error } = await _supabase
-                .from('profiles')
-                .select('*')
-                .ilike('username', uInput)
-                .maybeSingle();
+            const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : _supabase;
+            if (client) {
+                const { data, error } = await client
+                    .from('profiles')
+                    .select('*')
+                    .ilike('username', uInput)
+                    .maybeSingle();
 
-            if (!error && data) {
-                if (!data.password || data.password === pInput) {
-                    foundUser = {
-                        id: data.id,
-                        username: data.username,
-                        password: data.password || pInput,
-                        name: data.full_name || data.name || data.username,
-                        department: data.department || 'แผนกคลังสินค้า',
-                        role: data.role || 'user'
-                    };
+                if (!error && data) {
+                    if (!data.password || data.password === pInput) {
+                        foundUser = {
+                            id: data.id,
+                            username: data.username,
+                            password: data.password || pInput,
+                            name: data.full_name || data.name || data.username,
+                            department: data.department || 'แผนกคลังสินค้า',
+                            role: data.role || 'user'
+                        };
 
-                    // รีเซ็ตสถานะเตะออกเมื่อล็อกอินสำเร็จ
-                    await _supabase.from('profiles').update({ is_kicked: false, force_logout: false }).ilike('username', uInput);
+                        await client.from('profiles').update({ is_kicked: false, force_logout: false }).ilike('username', uInput);
+                    }
                 }
             }
         } catch(err) {}
@@ -188,41 +200,51 @@ async function handleSystemLogin(e) {
         localStorage.setItem('WMS_ACTIVE_USER', JSON.stringify(currentUser));
         localStorage.setItem('WMS_LAST_ACTIVE_TIME', Date.now().toString());
 
-        document.getElementById('loginOverlay').style.display = 'none';
-        document.getElementById('loginErrorAlert').style.display = 'none';
-        document.getElementById('currentUserNameText').textContent = `${currentUser.name} (${currentUser.username})`;
+        const loginOverlay = document.getElementById('loginOverlay');
+        const errAlert = document.getElementById('loginErrorAlert');
+        const nameText = document.getElementById('currentUserNameText');
+
+        if (loginOverlay) loginOverlay.style.display = 'none';
+        if (errAlert) errAlert.style.display = 'none';
+        if (nameText) nameText.textContent = `${currentUser.name} (${currentUser.username})`;
 
         resetAutoLogoutTimer();
         initSecurityListeners();
-        renderSidebarMenu();
-        playSuccessSound();
-        
-        speakThaiText(`ยินดีต้อนรับ คุณ ${currentUser.name}`);
-        showToast(`🎉 ยืนยันสิทธิ์สำเร็จ! ยินดีต้อนรับคุณ ${currentUser.name}`);
+        if (typeof renderSidebarMenu === 'function') renderSidebarMenu();
+        if (typeof handleHashRouting === 'function') handleHashRouting();
+        if (typeof playSuccessSound === 'function') playSuccessSound();
+        if (typeof speakThaiText === 'function') speakThaiText(`ยินดีต้อนรับ คุณ ${currentUser.name}`);
+        if (typeof showToast === 'function') showToast(`🎉 ยืนยันสิทธิ์สำเร็จ! ยินดีต้อนรับคุณ ${currentUser.name}`);
 
-        await logUserActivity('AUTH', `เข้าสู่ระบบสำเร็จ`);
+        if (typeof logUserActivity === 'function') {
+            await logUserActivity('AUTH', `เข้าสู่ระบบสำเร็จ`);
+        }
     } else {
         loginFailedAttempts++;
-        playErrorSound();
+        if (typeof playErrorSound === 'function') playErrorSound();
+        const btnSubmit = document.getElementById('loginSubmitBtn');
+        const errAlert = document.getElementById('loginErrorAlert');
+        const errText = document.getElementById('loginErrorMsg');
+
         if (loginFailedAttempts >= 5) {
-            document.getElementById('loginSubmitBtn').disabled = true;
-            document.getElementById('loginErrorMsg').textContent = '🚨 กรอกรหัสผิด 5 ครั้ง! ระงับชั่วคราว 30 วินาที';
-            document.getElementById('loginErrorAlert').style.display = 'block';
+            if (btnSubmit) btnSubmit.disabled = true;
+            if (errText) errText.textContent = '🚨 กรอกรหัสผิด 5 ครั้ง! ระงับชั่วคราว 30 วินาที';
+            if (errAlert) errAlert.style.display = 'block';
             setTimeout(() => {
                 loginFailedAttempts = 0;
-                document.getElementById('loginSubmitBtn').disabled = false;
-                document.getElementById('loginErrorAlert').style.display = 'none';
+                if (btnSubmit) btnSubmit.disabled = false;
+                if (errAlert) errAlert.style.display = 'none';
             }, 30000);
         } else {
-            document.getElementById('loginErrorMsg').textContent = `Username หรือ Password ไม่ถูกต้อง! (เหลืออีก ${5 - loginFailedAttempts} ครั้ง)`;
-            document.getElementById('loginErrorAlert').style.display = 'block';
+            if (errText) errText.textContent = `Username หรือ Password ไม่ถูกต้อง! (เหลืออีก ${5 - loginFailedAttempts} ครั้ง)`;
+            if (errAlert) errAlert.style.display = 'block';
         }
     }
 }
 
 async function handleSystemLogout(reasonMsg = null) {
     if (reasonMsg || confirm("คุณแน่ใจหรือไม่ที่จะออกจากระบบ?")) {
-        if (currentUser) {
+        if (currentUser && typeof logUserActivity === 'function') {
             await logUserActivity('AUTH', `ออกจากระบบ ${reasonMsg ? '(Auto Timeout/Kicked)' : ''}`);
         }
         if (sessionCheckInterval) clearInterval(sessionCheckInterval);
@@ -236,7 +258,6 @@ async function handleSystemLogout(reasonMsg = null) {
     }
 }
 
-// 🟢 ฟังก์ชันสำหรับ Admin เพื่อเตะผู้ใช้รายนั้นออกจากระบบแบบ Realtime
 async function kickUserSession(targetUsername) {
     if (!currentUser || currentUser.role !== 'admin') {
         alert("⚠️ เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถใช้คำสั่งนี้ได้");
@@ -255,14 +276,14 @@ async function kickUserSession(targetUsername) {
                 if (client) {
                     await client.from('profiles').update({ is_kicked: true, force_logout: true }).ilike('username', targetUsername);
                 }
-            } catch(e) {
-                // Safe Catch
-            }
+            } catch(e) {}
         }
 
         if (typeof playSuccessSound === 'function') playSuccessSound();
         if (typeof showToast === 'function') showToast(`🚨 ส่งคำสั่งเตะผู้ใช้ ${targetUsername} ออกจากระบบเรียบร้อยแล้ว`);
-        await logUserActivity('AUTH_KICK', `สั่งเตะผู้ใช้ ${targetUsername} ออกจากระบบ`, targetUsername);
+        if (typeof logUserActivity === 'function') {
+            await logUserActivity('AUTH_KICK', `สั่งเตะผู้ใช้ ${targetUsername} ออกจากระบบ`, targetUsername);
+        }
     }
 }
 
@@ -318,5 +339,7 @@ function populateLogUserDropdown() {
     });
 }
 
-// Global Exports
 window.kickUserSession = kickUserSession;
+window.handleSystemLogin = handleSystemLogin;
+window.handleSystemLogout = handleSystemLogout;
+window.initAuthSystem = initAuthSystem;

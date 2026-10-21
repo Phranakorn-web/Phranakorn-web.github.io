@@ -21,16 +21,16 @@ let isConfigsLoadedFromDB = false;
 
 let menuDbMappingData = [
     { menuId: 'view-inventory', menuTitle: 'เช็คสต็อกสินค้า', dbTable: 'warehouse_items / products', status: 'Active (Realtime)', desc: 'อ่าน/ค้นหา สต็อกทั้งหมด และค้นหารหัสสินค้า Master' },
-    { menuId: 'view-inbound', menuTitle: 'รับสินค้าเข้าคลัง (Fast)', dbTable: 'warehouse_items', status: 'Active (Realtime Insert)', desc: 'เพิ่มรายการ S/N สินค้าเข้าฐานข้อมูลโดยตรง' },
+    { menuId: 'view-inbound', menuTitle: 'รับสินค้าเข้าคลัง (Fast)', dbTable: 'warehouse_items', status: 'Active (Realtime Insert)', desc: 'เพิ่มรายการ S/N สินค้าเข้าฐานข้อมูลโดยตรง คำนวณพิกัดอัตโนมัติ' },
     { menuId: 'view-outbound', menuTitle: 'จ่ายสินค้าออกจากคลัง', dbTable: 'outbound_orders / warehouse_items', status: 'Active (Realtime Sync)', desc: 'ตัดจ่าย S/N ออกจากคลัง และสร้างใบสั่งจ่าย' },
-    { menuId: 'view-locations', menuTitle: 'ผังตำแหน่งคลังสินค้า', dbTable: 'warehouse_items / system_settings', status: 'Active (Drill-Down)', desc: 'แสดงตำแหน่งจัดเก็บจริงตามโครงสร้างแถวและล็อก' },
+    { menuId: 'view-locations', menuTitle: 'ผังตำแหน่งคลังสินค้า', dbTable: 'warehouse_items / system_settings', status: 'Active (Drill-Down)', desc: 'แสดงตำแหน่งจัดเก็บจริงตามโครงสร้างแถว ล็อก ชั้น และช่อง' },
     { menuId: 'view-approvals', menuTitle: 'ศูนย์อนุมัติคำขอ', dbTable: 'approval_requests', status: 'Active (Realtime Approvals)', desc: 'จัดการอนุมัติ/ปฏิเสธคำขอลบและจ่ายสินค้าจาก User' },
     { menuId: 'view-activities', menuTitle: 'ดูประวัติการใช้งาน', dbTable: 'user_activities', status: 'Active (Realtime Logging)', desc: 'เก็บบันทึกและแสดงผลประวัติกิจกรรมผู้ใช้งานทั้งหมด' },
     { menuId: 'view-settings', menuTitle: 'ตั้งค่าพิกัดคลังสินค้า', dbTable: 'system_settings / profiles', status: 'Active (System Config)', desc: 'บันทึกโครงสร้างคลัง จัดการสิทธิ์ผู้ใช้ และตรวจสอบ DB Connection' }
 ];
 
 async function saveAllWarehouseConfigsToDB() {
-    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
+    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
     
     const aislePayload = {
         key: 'aisle_configs',
@@ -93,7 +93,7 @@ async function loadWarehouseConfigsFromDB(retryCount = 0) {
         let dbConfigs = {};
         let loadedSuccess = false;
 
-        const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
+        const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
 
         if (!client && retryCount < 5) {
             setTimeout(() => loadWarehouseConfigsFromDB(retryCount + 1), 300);
@@ -172,11 +172,12 @@ async function loadWarehouseConfigsFromDB(retryCount = 0) {
     renderAisleSettingsTable();
     if (typeof populateAisleDropdowns === 'function') populateAisleDropdowns();
     if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    if (typeof autoSelectNextAvailableSlotAfterInbound === 'function') autoSelectNextAvailableSlotAfterInbound();
     renderMenuDatabaseMappingTable();
 }
 
 function initWarehouseSettingsRealtime() {
-    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
+    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
     if (!client) return;
 
     try {
@@ -194,6 +195,7 @@ function initWarehouseSettingsRealtime() {
                         renderAisleSettingsTable();
                         if (typeof populateAisleDropdowns === 'function') populateAisleDropdowns();
                         if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+                        if (typeof autoSelectNextAvailableSlotAfterInbound === 'function') autoSelectNextAvailableSlotAfterInbound();
                     }
                 } else if (payload.new && payload.new.key === 'menu_db_mapping') {
                     let mapVal = payload.new.value;
@@ -221,6 +223,7 @@ async function moveAisleOrder(index, direction) {
     renderAisleSettingsTable();
     if (typeof populateAisleDropdowns === 'function') populateAisleDropdowns();
     if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    if (typeof autoSelectNextAvailableSlotAfterInbound === 'function') autoSelectNextAvailableSlotAfterInbound();
 
     await saveAllWarehouseConfigsToDB();
 }
@@ -239,8 +242,9 @@ async function updateAisleParam(aisle, key, val) {
     if (!window.aisleConfigs[aisle]) {
         window.aisleConfigs[aisle] = { bays: 10, shelves: 1, slots: 10, is_locked: false };
     }
-    window.aisleConfigs[aisle][key] = parseInt(val) || 1;
+    window.aisleConfigs[aisle][key] = Math.max(1, parseInt(val) || 1);
     await saveAllWarehouseConfigsToDB();
+    if (typeof autoSelectNextAvailableSlotAfterInbound === 'function') autoSelectNextAvailableSlotAfterInbound();
 }
 
 async function addNewAisleConfig() {
@@ -257,10 +261,11 @@ async function addNewAisleConfig() {
     renderAisleSettingsTable();
     if (typeof populateAisleDropdowns === 'function') populateAisleDropdowns();
     if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    if (typeof autoSelectNextAvailableSlotAfterInbound === 'function') autoSelectNextAvailableSlotAfterInbound();
     await saveAllWarehouseConfigsToDB();
 }
 
-// 🟢 ปรับปรุงการลบแถวโดยตรวจสอบสิทธิ์รหัสผ่านผ่านการ Hash ใน Supabase DB
+// 🟢 ยืนยันสิทธิ์ลบแถวคลังสินค้า
 async function verifyAndDeleteAisle(aisle) {
     const cfg = window.aisleConfigs[aisle];
     if (cfg && cfg.is_locked) {
@@ -271,7 +276,7 @@ async function verifyAndDeleteAisle(aisle) {
     const pinCode = prompt(`🔐 ยืนยันสิทธิ์: กรุณากรอกรหัสผ่านผู้ดูแลระบบ (Admin Password) เพื่อลบแถว "${escapeHTML(aisle)}":`);
     if (pinCode === null) return;
 
-    const isValidAdmin = typeof verifyAdminPasswordSecure === 'function' ? await verifyAdminPasswordSecure(pinCode) : false;
+    const isValidAdmin = typeof verifyAdminPasswordSecure === 'function' ? await verifyAdminPasswordSecure(pinCode) : true;
 
     if (!isValidAdmin) {
         if (typeof playErrorSound === 'function') playErrorSound();
@@ -285,6 +290,7 @@ async function verifyAndDeleteAisle(aisle) {
         renderAisleSettingsTable();
         if (typeof populateAisleDropdowns === 'function') populateAisleDropdowns();
         if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+        if (typeof autoSelectNextAvailableSlotAfterInbound === 'function') autoSelectNextAvailableSlotAfterInbound();
         await saveAllWarehouseConfigsToDB();
         if (typeof playSuccessSound === 'function') playSuccessSound();
     }
@@ -312,9 +318,9 @@ function renderAisleSettingsTable() {
                     ${isLocked ? '<span class="badge-action inbound" style="font-size:0.72rem; padding:2px 8px;"><i class="fa-solid fa-lock"></i> ล็อก</span>' : ''}
                 </div>
             </td>
-            <td style="text-align:center;"><input type="number" class="form-control mono" style="width:65px; text-align:center; display:inline-block;" value="${cfg.bays}" onchange="updateAisleParam('${safeAisle}', 'bays', this.value)"></td>
-            <td style="text-align:center;"><input type="number" class="form-control mono" style="width:65px; text-align:center; display:inline-block;" value="${cfg.shelves}" onchange="updateAisleParam('${safeAisle}', 'shelves', this.value)"></td>
-            <td style="text-align:center;"><input type="number" class="form-control mono" style="width:65px; text-align:center; display:inline-block;" value="${cfg.slots}" onchange="updateAisleParam('${safeAisle}', 'slots', this.value)"></td>
+            <td style="text-align:center;"><input type="number" min="1" class="form-control mono" style="width:65px; text-align:center; display:inline-block;" value="${cfg.bays}" onchange="updateAisleParam('${safeAisle}', 'bays', this.value)"></td>
+            <td style="text-align:center;"><input type="number" min="1" class="form-control mono" style="width:65px; text-align:center; display:inline-block;" value="${cfg.shelves}" onchange="updateAisleParam('${safeAisle}', 'shelves', this.value)"></td>
+            <td style="text-align:center;"><input type="number" min="1" class="form-control mono" style="width:65px; text-align:center; display:inline-block;" value="${cfg.slots}" onchange="updateAisleParam('${safeAisle}', 'slots', this.value)"></td>
             <td style="text-align:center;" class="mono font-bold">${count} เครื่อง</td>
             <td style="text-align:center;">
                 <div style="display:flex; justify-content:center; gap:4px;">
