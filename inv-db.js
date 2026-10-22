@@ -186,21 +186,24 @@ function updateDBConnectionStatus(isOnline, detailText = '') {
 
 function extractAisleBayKey(locStr) {
     if (!locStr) return 'DOCK';
-    const upper = String(locStr).toUpperCase().trim();
+    const clean = normalizeLoc(locStr);
+    const upper = String(clean || locStr).toUpperCase().trim();
     const parts = upper.split('-');
     return parts.length >= 2 ? `${parts[0]}-${parts[1]}` : upper;
 }
 
 function extractAisleKey(locStr) {
     if (!locStr) return 'DOCK';
-    const upper = String(locStr).toUpperCase().trim();
+    const clean = normalizeLoc(locStr);
+    const upper = String(clean || locStr).toUpperCase().trim();
     const parts = upper.split('-');
     return parts[0] || upper;
 }
 
 function extractBayKey(locStr) {
     if (!locStr) return 'ALL';
-    const upper = String(locStr).toUpperCase().trim();
+    const clean = normalizeLoc(locStr);
+    const upper = String(clean || locStr).toUpperCase().trim();
     const parts = upper.split('-');
     return parts.length >= 2 ? parts[1] : 'ALL';
 }
@@ -441,7 +444,7 @@ function getSupabaseClient() {
     return null;
 }
 
-function fetchWithTimeout(promise, ms = 10000) {
+function fetchWithTimeout(promise, ms = 12000) {
     return Promise.race([
         promise,
         new Promise((_, reject) => setTimeout(() => reject(new Error('Database Request Timeout')), ms))
@@ -506,7 +509,7 @@ async function fetchAllWarehouseItems() {
                 .order('created_at', { ascending: false })
                 .range(from, from + step - 1);
 
-            const { data, error } = await fetchWithTimeout(queryPromise, 12000);
+            const { data, error } = await fetchWithTimeout(queryPromise, 15000);
             if (error) throw error;
 
             if (data && data.length > 0) {
@@ -557,18 +560,19 @@ async function loadMasterProductsFromDB() {
             let reqPromise = client
                 .from('products')
                 .select('*')
+                .order('id', { ascending: true })
                 .range(from, from + step - 1);
 
             let response;
             try {
-                response = await fetchWithTimeout(reqPromise, 10000);
+                response = await fetchWithTimeout(reqPromise, 12000);
             } catch (err) {
                 reqPromise = client
                     .from('products')
                     .select('*')
                     .order('sku', { ascending: true })
                     .range(from, from + step - 1);
-                response = await fetchWithTimeout(reqPromise, 10000);
+                response = await fetchWithTimeout(reqPromise, 12000);
             }
 
             if (response.error) {
@@ -736,46 +740,169 @@ function populateStockFilterDropdowns() {
     const typeSelect = document.getElementById('filterItemTypeSelect') || document.getElementById('filterTypeSelect');
     const modelSelect = document.getElementById('filterModelSelect') || document.getElementById('filterNameSelect');
 
+    const aisleSelect = document.getElementById('filterAisleSelect');
+    const baySelect = document.getElementById('filterBaySelect');
+    const locSelect = document.getElementById('filterLocationSelect');
+
     const skuSet = new Set();
     const modelSet = new Set();
+    const locSet = new Set();
 
     globalInventoryData.forEach(item => {
         if (item.category) skuSet.add(item.category.trim());
         if (item.name) modelSet.add(item.name.trim());
+        if (item.location) locSet.add(item.location.trim().toUpperCase());
     });
 
     if (typeSelect) {
         const curVal = typeSelect.value || 'ALL';
         typeSelect.innerHTML = `
-            <option value="ALL">🏷️ กองตามประเภท (ทั้งหมด)</option>
+            <option value="ALL">🏷️ กรองตามประเภท (ทั้งหมด)</option>
             <option value="สินค้า">📦 สินค้าทั่วไป</option>
             <option value="วัสดุสิ้นเปลือง">🧪 วัสดุสิ้นเปลือง / หมึก / ฟิลาเมนต์</option>
             <option value="อะไหล่">⚙️ อะไหล่ / ชิ้นส่วนอุปกรณ์</option>
         `;
         typeSelect.value = curVal;
+        typeSelect.onchange = filterInventoryData;
     }
 
     if (skuSelect) {
         const curVal = skuSelect.value || 'ALL';
         const sortedSkus = Array.from(skuSet).sort();
-        let options = `<option value="ALL">📦 กองตามรหัสสินค้า (SKU ทั้งหมด)</option>`;
+        let options = `<option value="ALL">📦 กรองตามรหัสสินค้า (SKU ทั้งหมด)</option>`;
         sortedSkus.forEach(s => {
             options += `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`;
         });
         skuSelect.innerHTML = options;
         skuSelect.value = curVal;
+        skuSelect.onchange = filterInventoryData;
     }
 
     if (modelSelect) {
         const curVal = modelSelect.value || 'ALL';
         const sortedModels = Array.from(modelSet).sort();
-        let options = `<option value="ALL">🖥️ กองตามชื่อรุ่น (ทั้งหมด)</option>`;
+        let options = `<option value="ALL">🖥️ กรองตามชื่อรุ่น (ทั้งหมด)</option>`;
         sortedModels.forEach(m => {
             options += `<option value="${escapeHTML(m)}">${escapeHTML(m)}</option>`;
         });
         modelSelect.innerHTML = options;
         modelSelect.value = curVal;
+        modelSelect.onchange = filterInventoryData;
     }
+
+    if (aisleSelect) {
+        const curVal = aisleSelect.value || 'ALL';
+        const discoveredAisles = discoverAllDatabaseAisles();
+        let options = `<option value="ALL">📍 กรองตามแถว/โซน (ทั้งหมด)</option>`;
+        discoveredAisles.forEach(a => {
+            const count = globalInventoryData.filter(i => extractAisleKey(i.location) === a).length;
+            const label = formatAisleBayLabel(a);
+            options += `<option value="${escapeHTML(a)}">${escapeHTML(label)} (${count} รายการ)</option>`;
+        });
+        aisleSelect.innerHTML = options;
+        if (Array.from(aisleSelect.options).some(o => o.value === curVal)) {
+            aisleSelect.value = curVal;
+        } else {
+            aisleSelect.value = 'ALL';
+        }
+        aisleSelect.onchange = onAisleFilterChange;
+    }
+
+    if (baySelect) {
+        const curVal = baySelect.value || 'ALL';
+        const selectedAisle = aisleSelect ? aisleSelect.value : 'ALL';
+        const baySet = new Set();
+        globalInventoryData.forEach(item => {
+            if (selectedAisle === 'ALL' || extractAisleKey(item.location) === selectedAisle) {
+                const bKey = extractBayKey(item.location);
+                if (bKey && bKey !== 'ALL') baySet.add(bKey);
+            }
+        });
+        const sortedBays = Array.from(baySet).sort();
+        let options = `<option value="ALL">🔒 กรองตามล็อก/บล็อก (ทั้งหมด)</option>`;
+        sortedBays.forEach(b => {
+            options += `<option value="${escapeHTML(b)}">ล็อก ${escapeHTML(b)}</option>`;
+        });
+        baySelect.innerHTML = options;
+        if (Array.from(baySelect.options).some(o => o.value === curVal)) {
+            baySelect.value = curVal;
+        } else {
+            baySelect.value = 'ALL';
+        }
+        baySelect.onchange = filterInventoryData;
+    }
+
+    if (locSelect) {
+        const curVal = locSelect.value || 'ALL';
+        const sortedLocs = Array.from(locSet).sort();
+        let options = `<option value="ALL">🎯 กรองตามพิกัดจัดเก็บระบุตรง (ทั้งหมด)</option>`;
+        sortedLocs.forEach(l => {
+            const formatted = typeof formatLocationCode === 'function' ? formatLocationCode(l) : l;
+            options += `<option value="${escapeHTML(l)}">${escapeHTML(formatted)}</option>`;
+        });
+        locSelect.innerHTML = options;
+        if (Array.from(locSelect.options).some(o => o.value === curVal)) {
+            locSelect.value = curVal;
+        } else {
+            locSelect.value = 'ALL';
+        }
+        locSelect.onchange = filterInventoryData;
+    }
+}
+
+// 🔄 ฟังก์ชันสลับการคัดกรองแถวแบบไดนามิก รองรับการอัปเดตตัวเลือกล็อกและพิกัดย่อยทันที
+function onAisleFilterChange() {
+    const aisleSelect = document.getElementById('filterAisleSelect');
+    const baySelect = document.getElementById('filterBaySelect');
+    const locSelect = document.getElementById('filterLocationSelect');
+
+    const selectedAisle = aisleSelect ? aisleSelect.value.trim().toUpperCase() : 'ALL';
+
+    if (baySelect) {
+        const curBay = baySelect.value || 'ALL';
+        const baySet = new Set();
+        globalInventoryData.forEach(item => {
+            if (selectedAisle === 'ALL' || extractAisleKey(item.location) === selectedAisle) {
+                const bKey = extractBayKey(item.location);
+                if (bKey && bKey !== 'ALL') baySet.add(bKey);
+            }
+        });
+        const sortedBays = Array.from(baySet).sort();
+        let bayOptions = `<option value="ALL">🔒 กรองตามล็อก/บล็อก (ทั้งหมด)</option>`;
+        sortedBays.forEach(b => {
+            bayOptions += `<option value="${escapeHTML(b)}">ล็อก ${escapeHTML(b)}</option>`;
+        });
+        baySelect.innerHTML = bayOptions;
+        if (Array.from(baySelect.options).some(o => o.value === curBay)) {
+            baySelect.value = curBay;
+        } else {
+            baySelect.value = 'ALL';
+        }
+    }
+
+    if (locSelect) {
+        const curLoc = locSelect.value || 'ALL';
+        const locSet = new Set();
+        globalInventoryData.forEach(item => {
+            if (selectedAisle === 'ALL' || extractAisleKey(item.location) === selectedAisle) {
+                if (item.location) locSet.add(item.location.trim().toUpperCase());
+            }
+        });
+        const sortedLocs = Array.from(locSet).sort();
+        let locOptions = `<option value="ALL">🎯 กรองตามพิกัดจัดเก็บระบุตรง (ทั้งหมด)</option>`;
+        sortedLocs.forEach(l => {
+            const formatted = typeof formatLocationCode === 'function' ? formatLocationCode(l) : l;
+            locOptions += `<option value="${escapeHTML(l)}">${escapeHTML(formatted)}</option>`;
+        });
+        locSelect.innerHTML = locOptions;
+        if (Array.from(locSelect.options).some(o => o.value === curLoc)) {
+            locSelect.value = curLoc;
+        } else {
+            locSelect.value = 'ALL';
+        }
+    }
+
+    filterInventoryData();
 }
 
 function filterInventoryData() {
@@ -801,8 +928,8 @@ function filterInventoryData() {
         const itemCat = (item.category || '').toUpperCase().trim();
         const itemName = (item.name || '').toLowerCase().trim();
         const itemLoc = (item.location || '').toUpperCase().trim();
-        const itemAisle = extractAisleKey(itemLoc);
-        const itemBay = extractBayKey(itemLoc);
+        const itemAisle = extractAisleKey(itemLoc).toUpperCase().trim();
+        const itemBay = extractBayKey(itemLoc).toUpperCase().trim();
         const receiverName = formatReceiverFullName(item).toLowerCase();
 
         const meta = resolveProductMetaData(item.category, item.name, item);
@@ -838,16 +965,23 @@ function filterInventoryData() {
         if (aisleFilter !== 'ALL') {
             if (aisleFilter === 'DOCK') matchAisle = (itemLoc === 'DOCK');
             else if (aisleFilter === 'OFFICE') matchAisle = (itemLoc === 'OFFICE');
-            else matchAisle = (itemAisle === aisleFilter) || (itemLoc === aisleFilter) || itemLoc.startsWith(`${aisleFilter}-`);
+            else {
+                matchAisle = (itemAisle === aisleFilter) || (itemLoc === aisleFilter) || itemLoc.startsWith(`${aisleFilter}-`);
+            }
         }
 
         let matchBay = true;
         if (bayFilter !== 'ALL') {
-            matchBay = (itemBay === bayFilter) || (parseInt(itemBay, 10) === parseInt(bayFilter, 10)) || itemLoc.includes(`-${bayFilter}-`);
+            const cleanBay = String(parseInt(bayFilter, 10) || bayFilter).padStart(2, '0');
+            matchBay = (itemBay === bayFilter) || (itemBay === cleanBay) || itemLoc.includes(`-${bayFilter}-`) || itemLoc.includes(`-${cleanBay}-`);
         }
 
         let matchLoc = true;
-        if (locSelectVal !== 'ALL') matchLoc = (itemLoc === locSelectVal);
+        if (locSelectVal !== 'ALL') {
+            const normSelectLoc = normalizeLoc(locSelectVal);
+            const normItemLoc = normalizeLoc(itemLoc);
+            matchLoc = (itemLoc === locSelectVal) || (normItemLoc === normSelectLoc);
+        }
 
         return matchText && matchSku && matchType && matchModel && matchAisle && matchBay && matchLoc;
     });
@@ -1244,7 +1378,7 @@ function renderInventoryTable(items) {
                     <button class="btn btn-sm btn-secondary" onclick="requestRelocateModal('${safeId}', '${safeSn}', '${escapeHTML(item.name)}', '${escapeHTML(item.location)}')" style="padding:3px 8px; font-size:0.75rem;" title="ย้ายพิกัด"><i class="fa-solid fa-right-left"></i> ย้าย</button>
                 </td>
                 <td style="text-align:center; vertical-align:middle; padding:8px 4px;">
-                    <button class="btn btn-sm btn-danger" onclick="requestDeleteModal('SINGLE', '${safeSn}', '${safeId}')" style="padding:3px 8px; font-size:0.75rem; background:#dc2626; border-color:#dc2626;" title="ลบรายการนี้"><i class="fa-solid fa-trash"></i> ลบ</button>
+                    <button class="btn btn-sm btn-danger" onclick="requestDeleteModal('SINGLE', '${safeSn}', '${safeId}', event)" style="padding:3px 8px; font-size:0.75rem; background:#dc2626; border-color:#dc2626;" title="ลบรายการนี้"><i class="fa-solid fa-trash"></i> ลบ</button>
                 </td>
             `;
             frag.appendChild(tr);
@@ -1528,7 +1662,7 @@ function renderStockDetailModalBody(items) {
                 <button class="btn btn-sm btn-secondary" onclick="requestRelocateModal('${safeId}', '${safeSn}', '${escapeHTML(item.name)}', '${escapeHTML(item.location)}')" style="padding:2px 6px; font-size:0.72rem;"><i class="fa-solid fa-right-left"></i> ย้าย</button>
             </td>
             <td style="text-align:center; vertical-align:middle; padding:8px 2px;">
-                <button class="btn btn-sm btn-danger" onclick="requestDeleteModal('SINGLE', '${safeSn}', '${safeId}')" style="padding:2px 6px; font-size:0.72rem; background:#dc2626; border-color:#dc2626;"><i class="fa-solid fa-trash"></i> ลบ</button>
+                <button class="btn btn-sm btn-danger" onclick="requestDeleteModal('SINGLE', '${safeSn}', '${safeId}', event)" style="padding:2px 6px; font-size:0.72rem; background:#dc2626; border-color:#dc2626;"><i class="fa-solid fa-trash"></i> ลบ</button>
             </td>
         `;
         frag.appendChild(tr);
@@ -2376,7 +2510,7 @@ function ensureDeleteConfirmModalExists() {
                 <h3 id="deleteModalHeaderTitle" style="margin:0; font-size:1.05rem; color:#dc2626; font-weight:800; display:flex; align-items:center; gap:8px;">
                     <i class="fa-solid fa-triangle-exclamation"></i> ยืนยันการลบสินค้าออกจากคลัง
                 </h3>
-                <button type="button" onclick="closeDeleteConfirmModal()" style="background:transparent; border:none; font-size:1.3rem; cursor:pointer; color:#64748b; line-height:1;">&times;</button>
+                <button type="button" onclick="window.closeDeleteConfirmModal ? window.closeDeleteConfirmModal() : closeDeleteConfirmModal()" style="background:transparent; border:none; font-size:1.3rem; cursor:pointer; color:#64748b; line-height:1;">&times;</button>
             </div>
             <div class="modal-body" style="padding:20px; text-align:center; background:#fff;">
                 <i id="deleteModalIcon" class="fa-solid fa-trash-can-arrow-up" style="font-size:2.8rem; color:#dc2626; margin-bottom:12px;"></i>
@@ -2387,15 +2521,19 @@ function ensureDeleteConfirmModalExists() {
                 </div>
             </div>
             <div class="modal-footer" style="padding:12px 18px; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; align-items:center; gap:8px; flex-wrap:wrap; background:#f8fafc;">
-                <button type="button" class="btn btn-secondary" onclick="closeDeleteConfirmModal()" style="border-radius:6px; font-weight:600; padding:8px 16px; font-size:0.82rem; cursor:pointer;">ยกเลิก</button>
-                <button type="button" id="btnConfirmDeleteExecute" class="btn btn-danger" onclick="executeDeleteAction(true)" style="border-radius:6px; font-weight:700; padding:8px 18px; font-size:0.82rem; background:#dc2626; border-color:#dc2626; color:#ffffff; cursor:pointer;"><i class="fa-solid fa-trash"></i> ยืนยันลบออกจาก DB ทันที</button>
+                <button type="button" class="btn btn-secondary" onclick="window.closeDeleteConfirmModal ? window.closeDeleteConfirmModal() : closeDeleteConfirmModal()" style="border-radius:6px; font-weight:600; padding:8px 16px; font-size:0.82rem; cursor:pointer;">ยกเลิก</button>
+                <button type="button" id="btnConfirmDeleteExecute" class="btn btn-danger" onclick="window.executeDeleteAction ? window.executeDeleteAction(true) : executeDeleteAction(true)" style="border-radius:6px; font-weight:700; padding:8px 18px; font-size:0.82rem; background:#dc2626; border-color:#dc2626; color:#ffffff; cursor:pointer;"><i class="fa-solid fa-trash"></i> ยืนยันลบออกจาก DB ทันที</button>
             </div>
         </div>
     `;
     document.body.appendChild(modal);
 }
 
-function requestDeleteModal(mode, sn = null, id = null) {
+function requestDeleteModal(mode, sn = null, id = null, event = null) {
+    if (event && typeof event.stopPropagation === 'function') {
+        event.stopPropagation();
+    }
+
     if (mode === 'BATCH' && selectedItemSnSet.size === 0) {
         if (typeof showToast === 'function') showToast("⚠️ กรุณาเลือกรายการสินค้าอย่างน้อย 1 รายการเพื่อลบ", true);
         else alert("⚠️ กรุณาเลือกรายการสินค้าอย่างน้อย 1 รายการเพื่อลบ");
@@ -2469,6 +2607,14 @@ function requestDeleteModal(mode, sn = null, id = null) {
         }
     }
 
+    const btnConfirm = document.getElementById('btnConfirmDeleteExecute');
+    if (btnConfirm) {
+        btnConfirm.onclick = function(e) {
+            if (e) { e.preventDefault(); e.stopPropagation(); }
+            executeDeleteAction(true);
+        };
+    }
+
     if (modal) {
         modal.style.zIndex = '9999999';
         modal.style.display = 'flex';
@@ -2496,7 +2642,10 @@ async function executeDeleteAction(forceDirect = true) {
         btnConfirm.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> กำลังลบข้อมูล...`;
     }
 
-    playActionFeedbackSound('delete');
+    try {
+        playActionFeedbackSound('delete');
+    } catch (e) {}
+
     const client = getSupabaseClient();
 
     let deleteSns = [];
@@ -2509,15 +2658,16 @@ async function executeDeleteAction(forceDirect = true) {
         const targetSnLower = targetSnClean.toLowerCase();
 
         const matches = globalInventoryData.filter(i => {
-            const iId = (i && i.id !== undefined && i.id !== null) ? String(i.id).trim() : '';
-            const iSn = (i && i.sn !== undefined && i.sn !== null) ? String(i.sn).trim().toLowerCase() : '';
+            if (!i) return false;
+            const iId = (i.id !== undefined && i.id !== null) ? String(i.id).trim() : '';
+            const iSn = (i.sn !== undefined && i.sn !== null) ? String(i.sn).trim().toLowerCase() : '';
             return (targetIdClean && iId === targetIdClean) || (targetSnLower && iSn === targetSnLower);
         });
 
         if (matches.length > 0) {
             matches.forEach(item => {
-                if (item.id !== undefined && item.id !== null) deleteIds.push(item.id);
-                if (item.sn) deleteSns.push(String(item.sn).trim());
+                if (item.id !== undefined && item.id !== null && String(item.id).trim() !== '') deleteIds.push(String(item.id).trim());
+                if (item.sn && String(item.sn).trim() !== '') deleteSns.push(String(item.sn).trim());
             });
         }
 
@@ -2531,17 +2681,22 @@ async function executeDeleteAction(forceDirect = true) {
         deleteIds = globalInventoryData
             .filter(i => i && i.sn && deleteSnLowerSet.has(String(i.sn).trim().toLowerCase()))
             .map(i => i.id)
-            .filter(v => v !== undefined && v !== null && String(v) !== '');
+            .filter(v => v !== undefined && v !== null && String(v).trim() !== '')
+            .map(v => String(v).trim());
     }
 
-    const deleteSnLowerSet = new Set(deleteSns.map(s => s.toLowerCase()));
-    const deleteIdSet = new Set(deleteIds.map(v => String(v).trim()));
+    const deleteSnLowerSet = new Set(deleteSns.filter(Boolean).map(s => String(s).trim().toLowerCase()));
+    const deleteIdSet = new Set(deleteIds.filter(Boolean).map(v => String(v).trim()));
 
     // 2. ลบออกจาก Local Memory ทันทีเรียลไทม์ (0ms Instant Wipe)
     globalInventoryData = globalInventoryData.filter(i => {
-        const iId = (i && i.id !== undefined && i.id !== null) ? String(i.id).trim() : '';
-        const iSn = (i && i.sn !== undefined && i.sn !== null) ? String(i.sn).trim().toLowerCase() : '';
-        return !deleteIdSet.has(iId) && !deleteSnLowerSet.has(iSn);
+        if (!i) return false;
+        const iId = (i.id !== undefined && i.id !== null) ? String(i.id).trim() : '';
+        const iSn = (i.sn !== undefined && i.sn !== null) ? String(i.sn).trim().toLowerCase() : '';
+        
+        const matchId = iId !== '' && deleteIdSet.has(iId);
+        const matchSn = iSn !== '' && deleteSnLowerSet.has(iSn);
+        return !matchId && !matchSn;
     });
 
     deleteSnLowerSet.forEach(snVal => {
@@ -2588,45 +2743,34 @@ async function executeDeleteAction(forceDirect = true) {
         timestamp: new Date().toISOString()
     });
 
-    // 4. ส่งคำสั่งลบไปยัง Supabase DB ในเบื้องหลังครอบคลุมทั้ง ID และ SN แบบ Chunking 100%
+    // 4. ส่งคำสั่งลบไปยัง Supabase DB ในเบื้องหลังครอบคลุมทั้ง ID และ SN ป้องกัน Type Error
     if (client) {
         (async () => {
             try {
-                // ลบด้วย ID แบบแบ่งก้อนละ 50 รายการ (ส่งทั้ง integer และ string เพื่อความชัวร์ 100%)
                 if (deleteIds.length > 0) {
-                    const chunkSize = 50;
-                    for (let i = 0; i < deleteIds.length; i += chunkSize) {
-                        const rawChunk = deleteIds.slice(i, i + chunkSize);
-                        const formattedChunk = [];
-                        rawChunk.forEach(val => {
-                            formattedChunk.push(val);
-                            const num = Number(val);
-                            if (!isNaN(num) && typeof val !== 'number') {
-                                formattedChunk.push(num);
-                            }
-                        });
+                    const validIds = deleteIds.filter(v => v !== null && v !== undefined && String(v).trim() !== '');
+                    const numIds = validIds.map(v => Number(v)).filter(n => !isNaN(n) && n > 0);
+                    const strIds = validIds.map(v => String(v).trim()).filter(s => isNaN(Number(s)) && s !== '');
 
-                        const { error: idErr } = await client.from('warehouse_items').delete().in('id', formattedChunk);
-                        if (idErr) {
-                            console.warn("Supabase Delete by ID warning:", idErr.message);
-                        }
+                    if (numIds.length > 0) {
+                        await client.from('warehouse_items').delete().in('id', numIds);
+                    }
+                    if (strIds.length > 0) {
+                        await client.from('warehouse_items').delete().in('id', strIds);
                     }
                 }
 
-                // ลบด้วย SN แบบแบ่งก้อนละ 50 รายการ (ครอบคลุมตัวพิมพ์เล็ก-ใหญ่)
                 if (deleteSns.length > 0) {
+                    const validSns = deleteSns.filter(s => s && String(s).trim() !== '');
                     const allSnVariants = Array.from(new Set([
-                        ...deleteSns,
-                        ...deleteSns.map(s => s.toLowerCase()),
-                        ...deleteSns.map(s => s.toUpperCase())
+                        ...validSns,
+                        ...validSns.map(s => String(s).trim().toLowerCase()),
+                        ...validSns.map(s => String(s).trim().toUpperCase())
                     ]));
                     const chunkSize = 50;
                     for (let i = 0; i < allSnVariants.length; i += chunkSize) {
                         const chunk = allSnVariants.slice(i, i + chunkSize);
-                        const { error: snErr } = await client.from('warehouse_items').delete().in('sn', chunk);
-                        if (snErr) {
-                            console.warn("Supabase Delete by SN warning:", snErr.message);
-                        }
+                        await client.from('warehouse_items').delete().in('sn', chunk);
                     }
                 }
             } catch (dbErr) {
@@ -3317,6 +3461,7 @@ window.toggleGroupSelection = toggleGroupSelection;
 window.toggleSelectAllGroups = toggleSelectAllGroups;
 window.clearAllSelections = clearAllSelections;
 window.populateStockFilterDropdowns = populateStockFilterDropdowns;
+window.onAisleFilterChange = onAisleFilterChange;
 window.openStockDetailModal = openStockDetailModal;
 window.closeStockDetailModal = closeStockDetailModal;
 window.filterStockDetailModalItems = filterStockDetailModalItems;
