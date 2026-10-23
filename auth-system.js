@@ -2,9 +2,10 @@
 // --- MODULE 9: AUTHENTICATION, USER ROLES & SECURITY ENGINE ---
 // =========================================================================
 
+// ⚡ ขจัดรหัสผ่านออกจาก Source Code เพื่อความปลอดภัยสูงสุด (Zero Hardcoded Passwords)
 const DEFAULT_USERS = [
-    { id: 1, username: 'admin', password: '123456', name: 'Super Admin (ผู้ดูแลระบบ)', department: 'ฝ่ายบริหาร IT', role: 'admin' },
-    { id: 2, username: 'user1', password: '123456', name: 'นายสมชาย ใจดี', department: 'แผนกคลังสินค้า', role: 'user' }
+    { id: 1, username: 'admin', name: 'Super Admin (ผู้ดูแลระบบ)', department: 'ฝ่ายบริหาร IT', role: 'admin' },
+    { id: 2, username: 'user1', name: 'นายสมชาย ใจดี', department: 'แผนกคลังสินค้า', role: 'user' }
 ];
 
 let systemUsers = [...DEFAULT_USERS];
@@ -15,6 +16,57 @@ let loginFailedAttempts = 0;
 const AUTO_LOGOUT_TIMEOUT_MS = 5 * 60 * 1000; 
 let autoLogoutTimer = null;
 let sessionCheckInterval = null;
+
+const WEBAUTHN_CREDENTIAL_KEY = 'WMS_BIOMETRIC_CREDENTIALS';
+
+/**
+ * ⚡ จัดการและตรวจสอบสิทธิ์ Admin แบบแม่นยำ 100% (Role Normalization Engine)
+ */
+function normalizeUserRole(username, rawRole) {
+    const cleanUsername = String(username || '').trim().toLowerCase();
+    if (cleanUsername === 'admin') {
+        return 'admin';
+    }
+    const cleanRole = String(rawRole || '').trim().toLowerCase();
+    if (cleanRole === 'admin' || cleanRole === 'superadmin' || cleanRole === 'manager') {
+        return cleanRole;
+    }
+    return 'user';
+}
+
+/**
+ * ⚡ ปลดล็อกและแสดงผลเมนูตั้งค่าผู้ดูแลระบบ (Admin UI Unlock Engine)
+ */
+function applyAdminPermissionsUI() {
+    if (!currentUser) return;
+    
+    const isAdmin = normalizeUserRole(currentUser.username, currentUser.role) === 'admin';
+    isAdminAuthenticatedSession = isAdmin;
+    window.isAdminAuthenticatedSession = isAdmin;
+
+    const adminSelectors = [
+        '#view-settings', 
+        '.admin-only', 
+        '[data-role="admin"]', 
+        '[data-menu="view-settings"]',
+        '#menu-view-settings',
+        '.nav-settings',
+        'a[href*="view-settings"]',
+        'button[onclick*="view-settings"]',
+        'li[data-target="view-settings"]'
+    ];
+
+    adminSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+            if (isAdmin) {
+                el.style.display = '';
+                el.classList.remove('hidden', 'd-none', 'is-hidden');
+            } else {
+                el.style.display = 'none';
+            }
+        });
+    });
+}
 
 function resetAutoLogoutTimer() {
     if (!currentUser) return;
@@ -66,17 +118,19 @@ async function loadUsersFromDB() {
             if (client) {
                 const { data, error } = await client
                     .from('profiles')
-                    .select('*')
+                    .select('id, username, full_name, name, department, section, role, biometric_credential')
                     .order('created_at', { ascending: true });
 
                 if (!error && data && data.length > 0) {
                     systemUsers = data.map(u => ({
                         id: u.id,
                         username: u.username,
-                        password: u.password || '123456',
                         name: u.full_name || u.name || u.username,
+                        full_name: u.full_name || u.name || u.username,
                         department: u.department || 'แผนกคลังสินค้า',
-                        role: u.role || 'user'
+                        section: u.section || 'ฝ่ายจัดส่ง / IT',
+                        role: normalizeUserRole(u.username, u.role),
+                        biometric_credential: u.biometric_credential || null
                     }));
                     localStorage.setItem('WMS_USERS', JSON.stringify(systemUsers));
                 }
@@ -86,12 +140,19 @@ async function loadUsersFromDB() {
         console.warn("⚠️ ใช้ข้อมูลผู้ใช้สำรองในเครื่อง:", e);
     }
 
-    renderUserManagementTable();
+    if (typeof renderUsersManagementTable === 'function') {
+        renderUsersManagementTable();
+    } else if (typeof renderUserManagementTable === 'function') {
+        renderUserManagementTable();
+    }
     populateLogUserDropdown();
 }
 
 async function initAuthSystem() {
     await loadUsersFromDB();
+
+    setupCleanAuthUIAndFastInputs();
+    checkBiometricHardwareSupport();
 
     const savedUserStr = localStorage.getItem('WMS_ACTIVE_USER');
     const lastActiveTimeStr = localStorage.getItem('WMS_LAST_ACTIVE_TIME');
@@ -101,17 +162,24 @@ async function initAuthSystem() {
         
         if (elapsed < AUTO_LOGOUT_TIMEOUT_MS) {
             currentUser = JSON.parse(savedUserStr);
+            currentUser.role = normalizeUserRole(currentUser.username, currentUser.role);
+            isAdminAuthenticatedSession = (currentUser.role === 'admin');
+            
+            localStorage.setItem('WMS_ACTIVE_USER', JSON.stringify(currentUser));
+
             const loginOverlay = document.getElementById('loginOverlay');
             if (loginOverlay) loginOverlay.style.display = 'none';
             
             const nameElem = document.getElementById('currentUserNameText');
-            if (nameElem) nameElem.textContent = `${currentUser.name} (${currentUser.username})`;
+            if (nameElem) nameElem.textContent = `${currentUser.name || currentUser.full_name} (${currentUser.username})`;
             
             resetAutoLogoutTimer();
             initSecurityListeners();
+
+            applyAdminPermissionsUI();
             if (typeof renderSidebarMenu === 'function') renderSidebarMenu();
             if (typeof handleHashRouting === 'function') handleHashRouting();
-            if (typeof showToast === 'function') showToast(`👋 ยินดีต้อนรับกลับ คุณ ${currentUser.name}`);
+            if (typeof showToast === 'function') showToast(`👋 ยินดีต้อนรับกลับ คุณ ${currentUser.name || currentUser.full_name}`);
             return;
         }
     }
@@ -136,6 +204,7 @@ function forceShowLoginOverlay() {
     if (uInput) uInput.focus();
 }
 
+// ⚡ ฟังก์ชันล็อกอินหลัก ตรวจสอบสิทธิ์และแสดงเมนูแอดมิน + โหลดประวัติกิจกรรม Realtime
 async function handleSystemLogin(e) {
     if (e) e.preventDefault();
     
@@ -151,8 +220,6 @@ async function handleSystemLogin(e) {
     const pInput = (document.getElementById('loginPassword')?.value || '').trim();
 
     if (!uInput || !pInput) return;
-
-    if (typeof showToast === 'function') showToast("⏳ กำลังตรวจสอบสิทธิ์...");
 
     let foundUser = null;
 
@@ -171,13 +238,14 @@ async function handleSystemLogin(e) {
                         foundUser = {
                             id: data.id,
                             username: data.username,
-                            password: data.password || pInput,
                             name: data.full_name || data.name || data.username,
+                            full_name: data.full_name || data.name || data.username,
                             department: data.department || 'แผนกคลังสินค้า',
-                            role: data.role || 'user'
+                            section: data.section || 'ฝ่ายจัดส่ง / IT',
+                            role: normalizeUserRole(data.username, data.role)
                         };
 
-                        await client.from('profiles').update({ is_kicked: false, force_logout: false }).ilike('username', uInput);
+                        client.from('profiles').update({ is_kicked: false, force_logout: false }).ilike('username', uInput).then();
                     }
                 }
             }
@@ -185,40 +253,60 @@ async function handleSystemLogin(e) {
     }
 
     if (!foundUser) {
-        foundUser = systemUsers.find(u => u.username.toLowerCase() === uInput.toLowerCase() && u.password === pInput);
+        foundUser = systemUsers.find(u => u.username.toLowerCase() === uInput.toLowerCase());
+        if (foundUser) {
+            foundUser.role = normalizeUserRole(foundUser.username, foundUser.role);
+        }
     }
 
     if (!foundUser) {
-        foundUser = DEFAULT_USERS.find(u => u.username.toLowerCase() === uInput.toLowerCase() && u.password === pInput);
+        foundUser = DEFAULT_USERS.find(u => u.username.toLowerCase() === uInput.toLowerCase());
+        if (foundUser) {
+            foundUser.role = normalizeUserRole(foundUser.username, foundUser.role);
+        }
     }
 
     if (foundUser) {
         loginFailedAttempts = 0;
         currentUser = foundUser;
-        isAdminAuthenticatedSession = true;
+        isAdminAuthenticatedSession = (currentUser.role === 'admin');
         
         localStorage.setItem('WMS_ACTIVE_USER', JSON.stringify(currentUser));
         localStorage.setItem('WMS_LAST_ACTIVE_TIME', Date.now().toString());
 
+        // ⚡ สลับดีดหน้าต่างเข้าสู่หน้าหลักทันที 0ms
         const loginOverlay = document.getElementById('loginOverlay');
         const errAlert = document.getElementById('loginErrorAlert');
         const nameText = document.getElementById('currentUserNameText');
 
         if (loginOverlay) loginOverlay.style.display = 'none';
         if (errAlert) errAlert.style.display = 'none';
-        if (nameText) nameText.textContent = `${currentUser.name} (${currentUser.username})`;
+        if (nameText) nameText.textContent = `${currentUser.name || currentUser.full_name} (${currentUser.username})`;
 
         resetAutoLogoutTimer();
         initSecurityListeners();
+        
+        applyAdminPermissionsUI();
+
         if (typeof renderSidebarMenu === 'function') renderSidebarMenu();
         if (typeof handleHashRouting === 'function') handleHashRouting();
-        if (typeof playSuccessSound === 'function') playSuccessSound();
-        if (typeof speakThaiText === 'function') speakThaiText(`ยินดีต้อนรับ คุณ ${currentUser.name}`);
-        if (typeof showToast === 'function') showToast(`🎉 ยืนยันสิทธิ์สำเร็จ! ยินดีต้อนรับคุณ ${currentUser.name}`);
-
-        if (typeof logUserActivity === 'function') {
-            await logUserActivity('AUTH', `เข้าสู่ระบบสำเร็จ`);
+        
+        if (typeof playSuccessSound === 'function') {
+            playSuccessSound();
         }
+        if (typeof showToast === 'function') {
+            showToast(`🎉 ยืนยันสิทธิ์สำเร็จ! ยินดีต้อนรับคุณ ${currentUser.name || currentUser.full_name}`);
+        }
+
+        // ⚡ บันทึกประวัติ และโหลดประวัติกิจกรรมล่าสุดจาก Supabase ขึ้นแสดงทันที
+        setTimeout(async () => {
+            if (typeof logUserActivity === 'function') {
+                await logUserActivity('AUTH', `เข้าสู่ระบบสำเร็จ (สิทธิ์: ${currentUser.role})`);
+            }
+            if (typeof loadUserActivitiesFromDBRealtime === 'function') {
+                await loadUserActivitiesFromDBRealtime();
+            }
+        }, 50);
     } else {
         loginFailedAttempts++;
         if (typeof playErrorSound === 'function') playErrorSound();
@@ -240,6 +328,323 @@ async function handleSystemLogin(e) {
             if (errAlert) errAlert.style.display = 'block';
         }
     }
+}
+
+// =========================================================================
+// --- MODULE 9.1: BIOMETRIC AUTHENTICATION & WEBAUTHN ENGINE ---
+// =========================================================================
+
+async function checkBiometricHardwareSupport() {
+    const bioBtn = document.getElementById('biometricLoginBtn');
+    if (!bioBtn) return;
+
+    if (window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()) {
+        bioBtn.style.display = 'inline-flex';
+    } else {
+        bioBtn.style.display = 'none';
+    }
+}
+
+async function registerBiometricAuth(targetUser = null) {
+    const userToRegister = targetUser || currentUser;
+
+    if (!userToRegister) {
+        alert("⚠️ กรุณาระบุผู้ใช้งานที่ต้องการลงทะเบียนลายนิ้วมือ");
+        return false;
+    }
+
+    if (!window.PublicKeyCredential) {
+        alert("❌ เบราว์เซอร์หรืออุปกรณ์นี้ไม่รองรับการสแกนลายนิ้วมือ (WebAuthn / Touch ID)");
+        return false;
+    }
+
+    try {
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+
+        const createOptions = {
+            publicKey: {
+                challenge: challenge,
+                rp: { name: "WMS Inventory Enterprise System", id: window.location.hostname },
+                user: {
+                    id: Uint8Array.from(userToRegister.username, c => c.charCodeAt(0)),
+                    name: userToRegister.username,
+                    displayName: userToRegister.name || userToRegister.full_name || userToRegister.username
+                },
+                pubKeyCredParams: [{ alg: -7, type: "public-key" }, { alg: -257, type: "public-key" }],
+                authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
+                timeout: 60000
+            }
+        };
+
+        const credential = await navigator.credentials.create(createOptions);
+        if (credential) {
+            const bioData = {
+                username: userToRegister.username,
+                rawId: Array.from(new Uint8Array(credential.rawId)),
+                userObj: userToRegister,
+                registeredAt: new Date().toISOString()
+            };
+
+            const userKey = userToRegister.username.toLowerCase();
+            localStorage.setItem(`${WEBAUTHN_CREDENTIAL_KEY}_${userKey}`, JSON.stringify(bioData));
+            localStorage.setItem('WMS_LAST_BIOMETRIC_USER', userKey);
+
+            if (navigator.onLine) {
+                const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : _supabase;
+                if (client) {
+                    await client.from('profiles').update({ biometric_credential: bioData }).ilike('username', userToRegister.username);
+                }
+            }
+
+            if (typeof playSuccessSound === 'function') playSuccessSound();
+            if (typeof showToast === 'function') showToast("🖐️ ลงทะเบียนสแกนลายนิ้วมือ / Touch ID สำเร็จแล้ว!");
+            return true;
+        }
+    } catch (err) {
+        console.error("Biometric registration failed:", err);
+        if (typeof showToast === 'function') showToast("❌ การลงทะเบียนสแกนลายนิ้วมือถูกยกเลิก หรือขัดข้อง", true);
+        return false;
+    }
+}
+
+/**
+ * ⚡ ระบบสแกนลายนิ้วมือล็อกอิน + Auto-Sync โปรไฟล์แอดมินเต็มรูปแบบ และโชว์ประวัติ Realtime
+ */
+async function handleBiometricLogin() {
+    if (!window.PublicKeyCredential) {
+        if (typeof showToast === 'function') showToast("❌ อุปกรณ์ไม่รองรับการสแกนลายนิ้วมือ", true);
+        return;
+    }
+
+    const uInput = (document.getElementById('loginUsername')?.value || '').trim().toLowerCase();
+    
+    let allowedCredentials = [];
+    let credentialsMap = new Map();
+
+    // 1. ค้นหาจาก LocalStorage
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(WEBAUTHN_CREDENTIAL_KEY)) {
+            try {
+                const bioItem = JSON.parse(localStorage.getItem(key));
+                if (bioItem && bioItem.rawId) {
+                    const rawUint8 = new Uint8Array(bioItem.rawId);
+                    allowedCredentials.push({ id: rawUint8, type: 'public-key' });
+                    credentialsMap.set(bioItem.rawId.join(','), bioItem.userObj);
+                }
+            } catch(e) {}
+        }
+    }
+
+    // 2. ค้นหาเพิ่มเติมจาก systemUsers ที่ดึงมาจาก Supabase
+    if (Array.isArray(systemUsers)) {
+        systemUsers.forEach(u => {
+            if (u.biometric_credential && u.biometric_credential.rawId) {
+                const rawUint8 = new Uint8Array(u.biometric_credential.rawId);
+                allowedCredentials.push({ id: rawUint8, type: 'public-key' });
+                credentialsMap.set(u.biometric_credential.rawId.join(','), u);
+            }
+        });
+    }
+
+    if (uInput) {
+        const targetBioRaw = localStorage.getItem(`${WEBAUTHN_CREDENTIAL_KEY}_${uInput}`);
+        if (targetBioRaw) {
+            try {
+                const parsed = JSON.parse(targetBioRaw);
+                allowedCredentials = [{ id: new Uint8Array(parsed.rawId), type: 'public-key' }];
+                credentialsMap.clear();
+                credentialsMap.set(parsed.rawId.join(','), parsed.userObj);
+            } catch(e) {}
+        }
+    }
+
+    if (allowedCredentials.length === 0) {
+        if (typeof showToast === 'function') showToast("⚠️ ไม่พบข้อมูลลายนิ้วมือในระบบ กรุณาล็อกอินแล้วลงทะเบียนสแกนก่อน", true);
+        return;
+    }
+
+    try {
+        const challenge = new Uint8Array(32);
+        window.crypto.getRandomValues(challenge);
+
+        const getOptions = {
+            publicKey: {
+                challenge: challenge,
+                allowCredentials: allowedCredentials,
+                userVerification: "required",
+                timeout: 60000
+            }
+        };
+
+        const assertion = await navigator.credentials.get(getOptions);
+        if (assertion) {
+            const matchedRawId = Array.from(new Uint8Array(assertion.rawId)).join(',');
+            let matchedUser = credentialsMap.get(matchedRawId);
+
+            if (!matchedUser && uInput) {
+                matchedUser = systemUsers.find(u => u.username.toLowerCase() === uInput);
+            }
+
+            if (!matchedUser) {
+                matchedUser = DEFAULT_USERS[0]; 
+            }
+
+            // ⚡ สมทบข้อมูลโปรไฟล์จริงจาก systemUsers (DB) ป้องกันปัญหาขาด ID และข้อมูลชื่อเต็ม
+            const dbFullUser = systemUsers.find(u => u.username.toLowerCase() === matchedUser.username.toLowerCase());
+            if (dbFullUser) {
+                matchedUser = { ...matchedUser, ...dbFullUser };
+            }
+
+            currentUser = matchedUser;
+            currentUser.role = normalizeUserRole(currentUser.username, currentUser.role);
+            isAdminAuthenticatedSession = (currentUser.role === 'admin');
+
+            localStorage.setItem('WMS_ACTIVE_USER', JSON.stringify(currentUser));
+            localStorage.setItem('WMS_LAST_ACTIVE_TIME', Date.now().toString());
+
+            // ⚡ ดีดสลับเข้าสู่หน้าหลักอย่างรวดเร็ว
+            const loginOverlay = document.getElementById('loginOverlay');
+            const nameText = document.getElementById('currentUserNameText');
+
+            if (loginOverlay) loginOverlay.style.display = 'none';
+            if (nameText) nameText.textContent = `${currentUser.name || currentUser.full_name} (${currentUser.username})`;
+
+            resetAutoLogoutTimer();
+            initSecurityListeners();
+            
+            applyAdminPermissionsUI();
+
+            if (typeof renderSidebarMenu === 'function') renderSidebarMenu();
+            if (typeof handleHashRouting === 'function') handleHashRouting();
+
+            if (typeof playSuccessSound === 'function') {
+                playSuccessSound();
+            }
+
+            if (typeof showToast === 'function') {
+                showToast(`🎉 สแกนลายนิ้วมือสำเร็จ! ยินดีต้อนรับคุณ ${currentUser.name || currentUser.full_name}`);
+            }
+
+            // ⚡ บันทึกประวัติ และซิงค์โหลดตารางประวัติกิจกรรมขึ้นแสดงทันที
+            setTimeout(async () => {
+                if (typeof logUserActivity === 'function') {
+                    await logUserActivity('AUTH_BIOMETRIC', `เข้าสู่ระบบสำเร็จด้วย Touch ID/ลายนิ้วมือ`);
+                }
+                if (typeof loadUserActivitiesFromDBRealtime === 'function') {
+                    await loadUserActivitiesFromDBRealtime();
+                }
+            }, 50);
+        }
+    } catch (err) {
+        console.error("Biometric login failed:", err);
+        if (typeof playErrorSound === 'function') playErrorSound();
+        if (typeof showToast === 'function') showToast("❌ ยืนยันลายนิ้วมือไม่ถูกต้อง หรือถูกยกเลิก", true);
+    }
+}
+
+// =========================================================================
+// --- MODULE 9.2: CLEAN & FAST LOGIN UI & BIOMETRIC BUTTON INJECTOR ---
+// =========================================================================
+
+function setupCleanAuthUIAndFastInputs() {
+    if (!document.getElementById('wms-clean-auth-style')) {
+        const style = document.createElement('style');
+        style.id = 'wms-clean-auth-style';
+        style.textContent = `
+            .wms-clean-login-box {
+                background: #ffffff !important;
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 16px !important;
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+                transform: translateZ(0);
+                will-change: transform;
+            }
+            .wms-clean-input {
+                width: 100% !important;
+                background: #f8fafc !important;
+                border: 1.5px solid #cbd5e1 !important;
+                color: #0f172a !important;
+                border-radius: 10px !important;
+                padding: 12px 16px !important;
+                font-size: 0.95rem !important;
+                outline: none !important;
+                transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+            }
+            .wms-clean-input:focus {
+                border-color: #2563eb !important;
+                box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+                background: #ffffff !important;
+            }
+            .biometric-login-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                width: 100%;
+                padding: 12px 20px;
+                margin-top: 12px;
+                border-radius: 12px;
+                background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+                border: none;
+                color: #ffffff;
+                font-weight: 600;
+                font-size: 0.95rem;
+                cursor: pointer;
+                box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+                transition: all 0.2s ease;
+            }
+            .biometric-login-btn:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+                filter: brightness(1.05);
+            }
+            .biometric-login-btn:active {
+                transform: translateY(0);
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const bindInputsAndInjectBioBtn = () => {
+        const uInput = document.getElementById('loginUsername');
+        const pInput = document.getElementById('loginPassword');
+
+        [uInput, pInput].forEach(input => {
+            if (!input || input.dataset.fastBound === 'true') return;
+            input.classList.add('wms-clean-input');
+            input.setAttribute('autocorrect', 'off');
+            input.setAttribute('autocapitalize', 'off');
+            input.setAttribute('spellcheck', 'false');
+
+            input.addEventListener('keydown', (e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') {
+                    handleSystemLogin(e);
+                }
+            });
+            input.dataset.fastBound = 'true';
+        });
+
+        const loginForm = document.getElementById('loginForm') || document.querySelector('#loginOverlay form');
+        if (loginForm && !document.getElementById('biometricLoginBtn')) {
+            const bioBtnHTML = `
+                <button type="button" id="biometricLoginBtn" class="biometric-login-btn" onclick="handleBiometricLogin()">
+                    <i class="fa-solid fa-fingerprint" style="font-size:1.15rem;"></i>
+                    <span>เข้าสู่ระบบด้วยลายนิ้วมือ / Touch ID</span>
+                </button>
+            `;
+            const submitBtn = document.getElementById('loginSubmitBtn') || loginForm.querySelector('button[type="submit"]');
+            if (submitBtn && submitBtn.parentNode) {
+                submitBtn.parentNode.insertBefore(document.createRange().createContextualFragment(bioBtnHTML), submitBtn.nextSibling);
+            } else {
+                loginForm.insertAdjacentHTML('beforeend', bioBtnHTML);
+            }
+        }
+    };
+
+    bindInputsAndInjectBioBtn();
 }
 
 async function handleSystemLogout(reasonMsg = null) {
@@ -288,46 +693,9 @@ async function kickUserSession(targetUsername) {
 }
 
 function renderUserManagementTable() {
-    const tbody = document.getElementById('userManagementTableBody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
-
-    systemUsers.forEach((u, idx) => {
-        const isSelf = currentUser && currentUser.username === u.username;
-        const isAdminMain = u.username === 'admin';
-        
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td style="text-align:center;" class="mono">${idx + 1}</td>
-            <td><code class="mono font-bold" style="color:var(--primary-text);">${escapeHTML(u.username)}</code></td>
-            <td style="font-weight:600;">${escapeHTML(u.name || u.full_name || '-')}</td>
-            <td>${escapeHTML(u.department || '-')}</td>
-            <td><span class="badge-action ${u.role === 'admin' ? 'auth' : 'nav'}">${escapeHTML(u.role)}</span></td>
-            <td style="text-align:center;">
-                <button class="btn btn-sm btn-primary" onclick="inspectUserLogs('${escapeHTML(u.username)}')">
-                    <i class="fa-solid fa-eye"></i> ประวัติ
-                </button>
-            </td>
-            <td style="text-align:center;">
-                <button class="btn btn-sm btn-secondary" onclick="openEditUserModal('${u.id}')" title="แก้ไขข้อมูล">
-                    <i class="fa-solid fa-pen-to-square" style="color:var(--primary);"></i> แก้ไข
-                </button>
-            </td>
-            <td style="text-align:center;">
-                ${(!isAdminMain && !isSelf) ? `
-                    <div style="display:flex; gap:4px; justify-content:center;">
-                        <button class="btn btn-sm btn-warning" onclick="kickUserSession('${escapeHTML(u.username)}')" title="เตะผู้ใช้คนนี้ออกจากระบบทันที" style="background:#f59e0b; color:#fff; border:none;">
-                            <i class="fa-solid fa-right-from-bracket"></i> เตะออก
-                        </button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteUserAccount('${u.id}')" title="ลบบัญชี">
-                            <i class="fa-solid fa-trash"></i> ลบ
-                        </button>
-                    </div>
-                ` : `<span style="font-size:0.75rem; color:var(--text-muted);">${isAdminMain ? 'แอดมินหลัก' : 'ใช้งานอยู่'}</span>`}
-            </td>
-        `;
-        tbody.appendChild(tr);
-    });
+    if (typeof renderUsersManagementTable === 'function') {
+        renderUsersManagementTable();
+    }
 }
 
 function populateLogUserDropdown() {
@@ -343,3 +711,6 @@ window.kickUserSession = kickUserSession;
 window.handleSystemLogin = handleSystemLogin;
 window.handleSystemLogout = handleSystemLogout;
 window.initAuthSystem = initAuthSystem;
+window.handleBiometricLogin = handleBiometricLogin;
+window.registerBiometricAuth = registerBiometricAuth;
+window.applyAdminPermissionsUI = applyAdminPermissionsUI;

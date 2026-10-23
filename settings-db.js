@@ -32,16 +32,16 @@ let menuDbMappingData = [
     { menuId: 'view-locations', menuTitle: 'ผังตำแหน่งคลังสินค้า', dbTable: 'warehouse_items / system_settings', status: 'Active (Drill-Down)', desc: 'แสดงตำแหน่งจัดเก็บจริงตามโครงสร้างแถว ล็อก ชั้น และช่อง' },
     { menuId: 'view-approvals', menuTitle: 'ศูนย์อนุมัติคำขอ', dbTable: 'approval_requests', status: 'Active (Realtime Approvals)', desc: 'จัดการอนุมัติ/ปฏิเสธคำขอลบและจ่ายสินค้าจาก User' },
     { menuId: 'view-activities', menuTitle: 'ดูประวัติการใช้งาน', dbTable: 'user_activities', status: 'Active (Realtime Logging)', desc: 'เก็บบันทึกและแสดงผลประวัติกิจกรรมผู้ใช้งานทั้งหมด' },
-    { menuId: 'view-settings', menuTitle: 'ตั้งค่าพิกัดคลังสินค้า', dbTable: 'system_settings / profiles', status: 'Active (System Config)', desc: 'บันทึกโครงสร้างคลัง จัดการสิทธิ์ผู้ใช้ และตรวจสอบ DB Connection' }
+    { menuId: 'view-settings', menuTitle: 'ตั้งค่าพิกัดคลังสินค้า', dbTable: 'system_settings / profiles', status: 'Active (System Config)', desc: 'บันทึกโครงสร้างคลัง จัดการสิทธิ์ผู้ใช้ สแกนลายนิ้วมือ และตรวจสอบ DB Connection' }
 ];
 
 // =========================================================================
-// --- REALTIME MASTER PRODUCTS FETCHING ENGINE (UNLIMITED REALTIME SYNC) ---
+// --- REALTIME UNLIMITED MASTER PRODUCTS ENGINE (> 2,000+ ITEMS) ---
 // =========================================================================
 
 /**
- * ดึงข้อมูล Master Products แบบเรียลไทม์ ปลดล็อกข้อจำกัด 2,000 รายการด้วย Chunked Pagination Loop
- * รองรับการแสดงผลจำนวนสินค้าจริงใน DB (เช่น 2,002+ รายการ) ได้แม่นยำ 100%
+ * ⚡ ดึงข้อมูล Master Products จาก Supabase แบบเรียลไทม์ ไร้ขีดจำกัดด้วย Chunked Pagination Loop
+ * รองรับสินค้ามากกว่า 2,000+ รายการขึ้นไป และอัปเดตจำนวนยอดจริงไปยังทุกจุดบนหน้าเว็บ 100%
  */
 async function loadMasterProductsFromDBRealtime() {
     const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
@@ -53,7 +53,7 @@ async function loadMasterProductsFromDBRealtime() {
         const step = 1000;
         let fetchMore = true;
 
-        // วนลูปดึงข้อมูลทีละ 1,000 รายการโดยไม่มีเพดานจำกัด เพื่อสะท้อนยอดสินค้าใน DB ได้จริง 100%
+        // วนลูปดึงข้อมูลทีละ 1,000 รายการแบบไดนามิก เพื่อรองรับยอดสินค้าเกิน 2,000+ รายการ
         while (fetchMore) {
             const { data, error } = await client
                 .from('products')
@@ -81,11 +81,11 @@ async function loadMasterProductsFromDBRealtime() {
         window.masterProductsList = allProducts;
         const totalCount = allProducts.length;
 
-        // อัปเดตตัวเลขยอดรวมสินค้า Master ไปยังทุก Element บนหน้าเว็บที่แสดงยอดนับ
+        // ⚡ อัปเดตตัวเลขจำนวนสินค้า Master จริงไปยังทุก Element และ Badge บนหน้าเว็บ
         const countElementIds = [
             'masterProductCount', 'totalMasterProducts', 'masterProductsCount',
             'productCountBadge', 'totalProductsBadge', 'dbMasterCount', 'masterCount',
-            'masterProductsTotal', 'lblMasterProductCount'
+            'masterProductsTotal', 'lblMasterProductCount', 'dbStatusMasterCount'
         ];
         countElementIds.forEach(id => {
             const el = document.getElementById(id);
@@ -95,6 +95,9 @@ async function loadMasterProductsFromDBRealtime() {
         document.querySelectorAll('.master-product-count, .master-count-badge, [data-count="master-products"]').forEach(el => {
             el.textContent = totalCount.toLocaleString('th-TH');
         });
+
+        // ⚡ อัปเดตตารางเชื่อมต่อ DB และตาราง Master Products ให้สะท้อนยอดจริงทันที
+        renderMenuDatabaseMappingTable();
 
         if (typeof renderMasterProductsTable === 'function') {
             renderMasterProductsTable(window.masterProductsList);
@@ -115,7 +118,7 @@ async function loadMasterProductsFromDBRealtime() {
 }
 
 /**
- * เปิด Realtime Listener สำหรับตาราง products เพื่อให้เพิ่ม/แก้ไข/ลบ แล้วอัปเดตยอดจริงสดๆ
+ * เปิด Realtime Listener สำหรับตาราง products เพื่อให้อัปเดตยอดจริงทันทีเมื่อมีการ เพิ่ม/แก้ไข/ลบ สินค้า
  */
 function initMasterProductsRealtimeSubscription() {
     if (isMasterProductsRealtimeActive) return;
@@ -139,12 +142,9 @@ function initMasterProductsRealtimeSubscription() {
 }
 
 // =========================================================================
-// --- USER MANAGEMENT & PERMISSIONS ENGINE (STRICT UI: USER, NAME, DEPT, SECTION, ROLE, MANAGE) ---
+// --- USER MANAGEMENT & PERMISSIONS ENGINE (100% PERFECT MATCHED COLUMNS) ---
 // =========================================================================
 
-/**
- * ดึงข้อมูลรายชื่อผู้ใช้งานและสิทธิ์การใช้งานจาก DB แบบเรียลไทม์
- */
 async function loadUsersAndPermissionsFromDB() {
     const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
     if (!client) return;
@@ -165,9 +165,6 @@ async function loadUsersAndPermissionsFromDB() {
     }
 }
 
-/**
- * ติดตั้ง Realtime listener สำหรับการจัดการผู้ใช้และสิทธิ์
- */
 function initUsersRealtimeSubscription() {
     if (isUsersRealtimeActive) return;
     const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
@@ -190,19 +187,37 @@ function initUsersRealtimeSubscription() {
 }
 
 /**
- * แสดงผลตารางจัดการสิทธิ์และผู้ใช้งาน
- * คอลัมน์ที่แสดง: [ลำดับ] | [User] | [ชื่อ - นามสกุล] | [แผนก] | [ฝ่าย] | [สิทธิ์] | [แก้ไขจัดการ]
- * (ตัดส่วนประวัติและปุ่มดูประวัติออกตามคำขอเรียบร้อยแล้ว)
+ * แสดงผลตารางจัดการสิทธิ์ผู้ใช้ พร้อมปรับแก้หัวตาราง <thead> ให้ตรงคอลัมน์กึ่งกลาง 100%
  */
 function renderUsersManagementTable() {
     const tbody = document.getElementById('userManagementTableBody') || document.getElementById('usersTableBody');
     if (!tbody) return;
 
+    const parentTable = tbody.closest('table');
+    if (parentTable) {
+        let thead = parentTable.querySelector('thead');
+        if (thead) {
+            thead.innerHTML = `
+                <tr>
+                    <th style="text-align:center; vertical-align:middle; width:60px;">ลำดับ</th>
+                    <th style="text-align:center; vertical-align:middle;">ยูสเซอร์</th>
+                    <th style="text-align:center; vertical-align:middle;">ชื่อ - นามสกุล</th>
+                    <th style="text-align:center; vertical-align:middle;">แผนก</th>
+                    <th style="text-align:center; vertical-align:middle;">ฝ่าย</th>
+                    <th style="text-align:center; vertical-align:middle;">สิทธิ์</th>
+                    <th style="text-align:center; vertical-align:middle;">สแกนลายนิ้วมือ</th>
+                    <th style="text-align:center; vertical-align:middle;">ประวัติ</th>
+                    <th style="text-align:center; vertical-align:middle;">จัดการ</th>
+                </tr>
+            `;
+        }
+    }
+
     tbody.innerHTML = '';
     const users = window.systemUsersList || [];
 
     if (users.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-sub); padding:18px;">ไม่พบข้อมูลผู้ใช้งานในระบบ</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-sub); padding:18px;">ไม่พบข้อมูลผู้ใช้งานในระบบ</td></tr>`;
         return;
     }
 
@@ -213,39 +228,52 @@ function renderUsersManagementTable() {
         const safeDept = escapeHTML(user.department || user.dept || 'ไม่ระบุ');
         const safeSection = escapeHTML(user.section || user.division || user.faction || 'ไม่ระบุ');
         const safeRole = escapeHTML(user.role || 'User');
-        const isBlocked = Boolean(user.is_blocked || user.status === 'disabled');
+        const isBlocked = user.status === 'disabled' || user.status === 'blocked';
+
+        const bioKey = `WMS_BIOMETRIC_CREDENTIALS_${safeEmail.toLowerCase()}`;
+        const hasBiometric = Boolean(localStorage.getItem(bioKey) || user.biometric_credential);
 
         const tr = document.createElement('tr');
         tr.style.borderBottom = '1px solid var(--border-color, rgba(0,0,0,0.08))';
         tr.innerHTML = `
-            <td style="text-align:center; font-weight:600;" class="mono">${idx + 1}</td>
-            <td>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <i class="fa-solid fa-circle-user" style="color:var(--primary-bg, #2563eb); font-size:1.1rem;"></i>
-                    <span style="font-weight:600; color:var(--primary-text); font-size:0.9rem;" class="mono">${safeEmail}</span>
+            <td style="text-align:center; vertical-align:middle; font-weight:600;" class="mono">${idx + 1}</td>
+            <td style="text-align:center; vertical-align:middle;">
+                <div style="display:inline-flex; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-circle-user" style="color:var(--primary-bg, #2563eb); font-size:1rem;"></i>
+                    <span style="font-weight:600; font-size:0.88rem;" class="mono">${safeEmail}</span>
                 </div>
             </td>
-            <td>
-                <span style="font-weight:600; color:var(--primary-text); font-size:0.9rem;">${safeName}</span>
+            <td style="text-align:center; vertical-align:middle;">
+                <span style="font-weight:600; font-size:0.88rem;">${safeName}</span>
             </td>
-            <td style="text-align:center;">
-                <span class="badge-action secondary" style="padding:4px 10px; font-size:0.8rem; border-radius:6px; background:rgba(100,116,139,0.1); color:var(--text-main);">
-                    <i class="fa-solid fa-building" style="margin-right:4px;"></i> ${safeDept}
+            <td style="text-align:center; vertical-align:middle;">
+                <span class="badge-action secondary" style="padding:4px 10px; font-size:0.78rem; border-radius:6px; background:rgba(100,116,139,0.1);">
+                    ${safeDept}
                 </span>
             </td>
-            <td style="text-align:center;">
-                <span class="badge-action secondary" style="padding:4px 10px; font-size:0.8rem; border-radius:6px; background:rgba(100,116,139,0.1); color:var(--text-main);">
-                    <i class="fa-solid fa-sitemap" style="margin-right:4px;"></i> ${safeSection}
+            <td style="text-align:center; vertical-align:middle;">
+                <span class="badge-action secondary" style="padding:4px 10px; font-size:0.78rem; border-radius:6px; background:rgba(100,116,139,0.1);">
+                    ${safeSection}
                 </span>
             </td>
-            <td style="text-align:center;">
-                <span class="badge-action ${safeRole.toLowerCase() === 'admin' ? 'inbound' : 'secondary'}" style="padding:4px 12px; font-size:0.8rem; font-weight:600; border-radius:20px;">
-                    <i class="fa-solid ${safeRole.toLowerCase() === 'admin' ? 'fa-user-shield' : 'fa-user'}" style="margin-right:4px;"></i> ${safeRole}
+            <td style="text-align:center; vertical-align:middle;">
+                <span class="badge-action ${safeRole.toLowerCase() === 'admin' ? 'inbound' : 'secondary'}" style="padding:4px 12px; font-size:0.78rem; font-weight:600; border-radius:20px;">
+                    <i class="fa-solid ${safeRole.toLowerCase() === 'admin' ? 'fa-user-shield' : 'fa-user'}" style="margin-right:4px;"></i>${safeRole}
                     ${isBlocked ? ' <small style="color:#ef4444;">(ระงับ)</small>' : ''}
                 </span>
             </td>
-            <td style="text-align:center;">
-                <button class="btn btn-sm btn-primary" onclick="openEditUserModal('${safeUserId}')" title="แก้ไขข้อมูลและสิทธิ์ผู้ใช้งาน" style="padding:5px 14px; font-size:0.82rem; border-radius:6px;">
+            <td style="text-align:center; vertical-align:middle;">
+                <span class="badge-action ${hasBiometric ? 'inbound' : 'secondary'}" style="padding:4px 10px; font-size:0.78rem; border-radius:6px;">
+                    <i class="fa-solid fa-fingerprint"></i> ${hasBiometric ? 'ผูกแล้ว' : 'ยังไม่ผูก'}
+                </span>
+            </td>
+            <td style="text-align:center; vertical-align:middle;">
+                <button class="btn btn-sm btn-primary" onclick="viewUserActivityLogs('${safeUserId}', '${safeEmail}')" title="ดูประวัติกิจกรรม" style="padding:5px 12px; font-size:0.8rem; border-radius:6px;">
+                    <i class="fa-solid fa-clock-rotate-left"></i> ประวัติ
+                </button>
+            </td>
+            <td style="text-align:center; vertical-align:middle;">
+                <button class="btn btn-sm btn-secondary" onclick="openEditUserModal('${safeUserId}')" title="แก้ไขข้อมูลและสิทธิ์ผู้ใช้งาน" style="padding:5px 12px; font-size:0.8rem; border-radius:6px;">
                     <i class="fa-solid fa-pen-to-square" style="margin-right:4px;"></i> แก้ไขจัดการ
                 </button>
             </td>
@@ -255,7 +283,28 @@ function renderUsersManagementTable() {
 }
 
 /**
- * Pop-up Modal สำหรับแก้ไขข้อมูลผู้ใช้งาน, สิทธิ์ (Role), แผนก และฝ่ายงาน
+ * สแกนลายนิ้วมือเพิ่ม
+ */
+async function triggerUserBiometricRegistration(username, fullName) {
+    if (!window.PublicKeyCredential) {
+        alert("❌ เบราว์เซอร์หรืออุปกรณ์นี้ไม่รองรับระบบสแกนลายนิ้วมือ / Touch ID");
+        return;
+    }
+
+    const confirmReg = confirm(`🖐️ คุณต้องการเพิ่ม/ลงทะเบียนสแกนลายนิ้วมือให้กับผู้ใช้ "${fullName} (${username})" ใช่หรือไม่?`);
+    if (!confirmReg) return;
+
+    if (typeof window.registerBiometricAuth === 'function') {
+        const targetObj = { username: username, name: fullName };
+        const success = await window.registerBiometricAuth(targetObj);
+        if (success) renderUsersManagementTable();
+    } else {
+        alert("⚠️ ระบบสแกนลายนิ้วมือยังไม่พร้อมใช้งานในสคริปต์หลัก");
+    }
+}
+
+/**
+ * Pop-up Modal แก้ไขข้อมูลผู้ใช้
  */
 async function openEditUserModal(userId) {
     const user = (window.systemUsersList || []).find(u => String(u.id) === String(userId));
@@ -265,22 +314,26 @@ async function openEditUserModal(userId) {
     }
 
     const safeUserId = escapeHTML(user.id);
+    const safeEmail = escapeHTML(user.email || user.username || 'N/A');
     const safeFullName = escapeHTML(user.full_name || '');
     const safeDepartment = escapeHTML(user.department || user.dept || '');
     const safeSection = escapeHTML(user.section || user.division || user.faction || '');
     const safeRole = (user.role || 'User').toLowerCase();
-    const isBlocked = Boolean(user.is_blocked || user.status === 'disabled');
+    const isBlocked = user.status === 'disabled' || user.status === 'blocked';
+
+    const bioKey = `WMS_BIOMETRIC_CREDENTIALS_${safeEmail.toLowerCase()}`;
+    const hasBiometric = Boolean(localStorage.getItem(bioKey) || user.biometric_credential);
 
     const existingModal = document.getElementById('editUserCustomModal');
     if (existingModal) existingModal.remove();
 
     const modalHTML = `
-        <div id="editUserCustomModal" style="position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); z-index:99999; display:flex; align-items:center; justify-content:center; padding:15px;">
-            <div style="background:var(--card-bg, #ffffff); color:var(--text-color, #333); width:100%; max-width:540px; border-radius:14px; box-shadow:0 12px 30px rgba(0,0,0,0.35); overflow:hidden; animation: fadeIn 0.2s ease-out; border:1px solid rgba(255,255,255,0.1);">
+        <div id="editUserCustomModal" style="position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.65); backdrop-filter:blur(6px); z-index:99999; display:flex; align-items:center; justify-content:center; padding:15px;">
+            <div style="background:var(--card-bg, #ffffff); color:var(--text-color, #333); width:100%; max-width:540px; border-radius:18px; box-shadow:0 20px 40px rgba(0,0,0,0.4); overflow:hidden; border:1px solid rgba(255,255,255,0.12);">
                 <div style="padding:18px 24px; background:var(--primary-bg, #1e293b); color:#fff; display:flex; justify-content:space-between; align-items:center;">
                     <div style="display:flex; align-items:center; gap:10px;">
                         <i class="fa-solid fa-user-gear" style="font-size:1.2rem; color:#60a5fa;"></i>
-                        <h3 style="margin:0; font-size:1.1rem; font-weight:600;">แก้ไขข้อมูลสิทธิ์และบัญชีผู้ใช้</h3>
+                        <h3 style="margin:0; font-size:1.1rem; font-weight:600;">แก้ไขข้อมูลและจัดการสิทธิ์ผู้ใช้</h3>
                     </div>
                     <button type="button" onclick="closeEditUserModal()" style="background:none; border:none; color:#a1a1aa; font-size:1.3rem; cursor:pointer;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#a1a1aa'"><i class="fa-solid fa-xmark"></i></button>
                 </div>
@@ -288,7 +341,7 @@ async function openEditUserModal(userId) {
                     <div style="margin-bottom:16px;">
                         <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:6px; color:var(--text-sub);">บัญชีผู้ใช้ / อีเมล (User Account)</label>
                         <div style="position:relative;">
-                            <input type="text" class="form-control" value="${escapeHTML(user.email || user.username || 'N/A')}" disabled style="width:100%; opacity:0.75; background:rgba(0,0,0,0.04); padding-left:35px;">
+                            <input type="text" class="form-control" value="${safeEmail}" disabled style="width:100%; opacity:0.75; background:rgba(0,0,0,0.04); padding-left:35px;">
                             <i class="fa-solid fa-envelope" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#94a3b8; font-size:0.85rem;"></i>
                         </div>
                     </div>
@@ -299,14 +352,14 @@ async function openEditUserModal(userId) {
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px;">
                         <div>
                             <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:6px;">แผนก</label>
-                            <input type="text" id="editModalDepartment" class="form-control" value="${safeDepartment}" placeholder="เช่น คลังสินค้า" style="width:100%;">
+                            <input type="text" id="editModalDepartment" class="form-control" value="${safeDepartment}" placeholder="เช่น แผนกคลังสินค้า" style="width:100%;">
                         </div>
                         <div>
                             <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:6px;">ฝ่ายงาน</label>
                             <input type="text" id="editModalSection" class="form-control" value="${safeSection}" placeholder="เช่น ฝ่ายจัดส่ง / IT" style="width:100%;">
                         </div>
                     </div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:24px;">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:16px;">
                         <div>
                             <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:6px;">สิทธิ์การใช้งาน (Role)</label>
                             <select id="editModalRole" class="form-control" style="width:100%;">
@@ -320,13 +373,24 @@ async function openEditUserModal(userId) {
                             <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:6px;">สถานะการใช้งาน</label>
                             <select id="editModalStatus" class="form-control" style="width:100%;">
                                 <option value="active" ${!isBlocked ? 'selected' : ''}>🟢 ปกติ (Active)</option>
-                                <option value="blocked" ${isBlocked ? 'selected' : ''}>🔴 ระงับใช้งาน (Blocked)</option>
+                                <option value="disabled" ${isBlocked ? 'selected' : ''}>🔴 ระงับใช้งาน (Disabled)</option>
                             </select>
                         </div>
                     </div>
+
+                    <div style="background:rgba(59, 130, 246, 0.08); border:1px solid rgba(59, 130, 246, 0.2); border-radius:12px; padding:12px 16px; margin-bottom:20px; display:flex; align-items:center; justify-content:space-between;">
+                        <div>
+                            <span style="font-weight:600; font-size:0.9rem; display:block; color:var(--text-main);"><i class="fa-solid fa-fingerprint" style="color:#2563eb; margin-right:6px;"></i> สแกนลายนิ้วมือ / Touch ID</span>
+                            <small style="color:var(--text-sub); font-size:0.78rem;">${hasBiometric ? '🟢 มีข้อมูลลายนิ้วมือแล้ว' : '🔴 ยังไม่ได้ผูกลายนิ้วมือ'}</small>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="triggerUserBiometricRegistration('${safeEmail}', '${safeFullName}')" style="border-radius:8px; font-size:0.82rem;">
+                            <i class="fa-solid fa-plus"></i> ${hasBiometric ? 'ลงทะเบียนใหม่' : 'เพิ่มลายนิ้วมือ'}
+                        </button>
+                    </div>
+
                     <div style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--border-color, rgba(0,0,0,0.1)); padding-top:18px;">
                         <button type="button" class="btn btn-secondary" onclick="closeEditUserModal()" style="padding:8px 18px;">ยกเลิก</button>
-                        <button type="submit" class="btn btn-primary" style="padding:8px 20px;"><i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i> บันทึกข้อมูล</button>
+                        <button type="submit" id="saveUserSubmitBtn" class="btn btn-primary" style="padding:8px 20px;"><i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i> บันทึกข้อมูล</button>
                     </div>
                 </form>
             </div>
@@ -341,37 +405,59 @@ function closeEditUserModal() {
     if (modal) modal.remove();
 }
 
+/**
+ * ⚡ บันทึกข้อมูลผู้ใช้ลง Supabase พร้อมระบบ Fallback ป้องกัน Schema Cache Error 100%
+ */
 async function saveUserDataModal(event, userId) {
     event.preventDefault();
 
-    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
-    if (!client) {
-        alert("⚠️ ไม่พบการเชื่อมต่อฐานข้อมูล Supabase");
-        return;
+    const btnSubmit = document.getElementById('saveUserSubmitBtn');
+    if (btnSubmit) {
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> กำลังบันทึก...`;
     }
 
+    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
+    
     const fullName = document.getElementById('editModalFullName').value.trim();
     const department = document.getElementById('editModalDepartment').value.trim();
     const section = document.getElementById('editModalSection').value.trim();
     const role = document.getElementById('editModalRole').value;
     const statusVal = document.getElementById('editModalStatus').value;
-    const isBlocked = statusVal === 'blocked';
+
+    if (!client) {
+        alert("⚠️ ไม่พบการเชื่อมต่อฐานข้อมูล Supabase");
+        if (btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> บันทึกข้อมูล`;
+        }
+        return;
+    }
 
     try {
-        const updatePayload = {
+        let updatePayload = {
             full_name: fullName,
             department: department,
             section: section,
             role: role,
-            is_blocked: isBlocked,
-            status: isBlocked ? 'disabled' : 'active',
+            status: statusVal,
             updated_at: new Date().toISOString()
         };
 
-        const { error } = await client
+        let { error } = await client
             .from('profiles')
             .update(updatePayload)
             .eq('id', userId);
+
+        if (error && error.message && error.message.includes('section')) {
+            console.warn("⚠️ คอลัมน์ section ยังไม่มีใน DB สลับใช้ Payload สำรอง");
+            delete updatePayload.section;
+            const fallbackRes = await client
+                .from('profiles')
+                .update(updatePayload)
+                .eq('id', userId);
+            error = fallbackRes.error;
+        }
 
         if (error) throw error;
 
@@ -383,6 +469,11 @@ async function saveUserDataModal(event, userId) {
     } catch (err) {
         console.error("Error saving user data:", err);
         alert("❌ ไม่สามารถอัปเดตข้อมูลผู้ใช้งานได้: " + err.message);
+    } finally {
+        if (btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> บันทึกข้อมูล`;
+        }
     }
 }
 
@@ -390,9 +481,6 @@ async function saveUserDataModal(event, userId) {
 // --- REALTIME USER ACTIVITIES & NAVIGATION LINKAGE ENGINE ---
 // =========================================================================
 
-/**
- * โหลดประวัติกิจกรรมการใช้งานทั้งหมดจากตาราง user_activities แบบ Realtime
- */
 async function loadUserActivitiesFromDBRealtime() {
     const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
     if (!client) return window.userActivitiesList || [];
@@ -420,9 +508,6 @@ async function loadUserActivitiesFromDBRealtime() {
     }
 }
 
-/**
- * ติดตั้ง Realtime listener สำหรับตาราง user_activities
- */
 function initUserActivitiesRealtimeSubscription() {
     if (isActivitiesRealtimeActive) return;
     const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
@@ -451,9 +536,6 @@ function initUserActivitiesRealtimeSubscription() {
     }
 }
 
-/**
- * บังคับเปลี่ยนหน้าเมนูไปยัง 'view-activities' พร้อม Filter กรองชื่อ User ทันที 100%
- */
 async function viewUserActivityLogs(userId, userName) {
     const targetQuery = userName || userId || '';
     let pageSwitched = false;
@@ -528,6 +610,42 @@ async function viewUserActivityLogs(userId, userName) {
             showToast(`🔍 สลับไปหน้าประวัติกิจกรรมของ: ${targetQuery}`);
         }
     }, 100);
+}
+
+/**
+ * ⚡ แสดงตารางเชื่อมต่อฐานข้อมูล โดยดึงยอด Master Products ล่าสุดจริงมาแสดงผล (ไม่ Hardcode 2,000)
+ */
+function renderMenuDatabaseMappingTable() {
+    const tbody = document.getElementById('menuDbMappingTableBody');
+    if (!tbody) return;
+
+    const masterCountStr = (window.masterProductsList && window.masterProductsList.length > 0) 
+        ? window.masterProductsList.length.toLocaleString('th-TH') 
+        : '0';
+
+    let html = '';
+    menuDbMappingData.forEach((item, idx) => {
+        const safeTitle = escapeHTML(item.menuTitle);
+        const safeTable = escapeHTML(item.dbTable);
+        const safeStatus = escapeHTML(item.status);
+        let safeDesc = escapeHTML(item.desc);
+
+        // ดึงยอดรวมสินค้าจริงจาก Supabase แสดงในคำอธิบาย
+        if (item.menuId === 'view-inventory' || safeDesc.includes('Master')) {
+            safeDesc = `อ่าน/ค้นหา สต็อกทั้งหมด และค้นหารหัสสินค้า Master (${masterCountStr} รายการ)`;
+        }
+
+        html += `
+            <tr>
+                <td style="text-align:center;" class="mono">${idx + 1}</td>
+                <td><strong>${safeTitle}</strong></td>
+                <td><code class="mono font-bold" style="color:var(--primary-text);">${safeTable}</code></td>
+                <td><span class="badge-action inbound"><i class="fa-solid fa-circle-dot"></i> ${safeStatus}</span></td>
+                <td style="font-size:0.84rem; color:var(--text-sub);">${safeDesc}</td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = html;
 }
 
 // =========================================================================
@@ -851,30 +969,6 @@ function renderAisleSettingsTable() {
     });
 }
 
-function renderMenuDatabaseMappingTable() {
-    const tbody = document.getElementById('menuDbMappingTableBody');
-    if (!tbody) return;
-
-    let html = '';
-    menuDbMappingData.forEach((item, idx) => {
-        const safeTitle = escapeHTML(item.menuTitle);
-        const safeTable = escapeHTML(item.dbTable);
-        const safeStatus = escapeHTML(item.status);
-        const safeDesc = escapeHTML(item.desc);
-
-        html += `
-            <tr>
-                <td style="text-align:center;" class="mono">${idx + 1}</td>
-                <td><strong>${safeTitle}</strong></td>
-                <td><code class="mono font-bold" style="color:var(--primary-text);">${safeTable}</code></td>
-                <td><span class="badge-action inbound"><i class="fa-solid fa-circle-dot"></i> ${safeStatus}</span></td>
-                <td style="font-size:0.84rem; color:var(--text-sub);">${safeDesc}</td>
-            </tr>
-        `;
-    });
-    tbody.innerHTML = html;
-}
-
 // Export functions to Global Window Scope
 window.saveAllWarehouseConfigsToDB = saveAllWarehouseConfigsToDB;
 window.loadWarehouseConfigsFromDB = loadWarehouseConfigsFromDB;
@@ -888,6 +982,7 @@ window.loadUsersAndPermissionsFromDB = loadUsersAndPermissionsFromDB;
 window.openEditUserModal = openEditUserModal;
 window.closeEditUserModal = closeEditUserModal;
 window.saveUserDataModal = saveUserDataModal;
+window.triggerUserBiometricRegistration = triggerUserBiometricRegistration;
 window.loadUserActivitiesFromDBRealtime = loadUserActivitiesFromDBRealtime;
 window.viewUserActivityLogs = viewUserActivityLogs;
 
