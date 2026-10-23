@@ -1,5 +1,5 @@
 // =========================================================================
-// --- MODULE 6: APPROVAL REQUESTS DATABASE & REALTIME ENGINE (ACCURATE TTS ENGINE) ---
+// --- MODULE 6: APPROVAL REQUESTS DATABASE & REALTIME ENGINE (OPTIMIZED & INSTANT UI) ---
 // =========================================================================
 
 // Safe Escape HTML Helper Fallback (Secures against XSS vulnerabilities)
@@ -25,6 +25,9 @@ let approvalPollingTimer = null;
 let approvalRealtimeChannel = null;
 let userTrackedRequestStatuses = {};
 const LOCAL_APPROVALS_KEY = 'wms_local_pending_approvals_v2';
+
+// ⚡ Optimistic UI Action Tracker (ป้องกันการโดนข้อมูลเก่าจาก DB ทับสถานะขณะกำลังซิงค์เบื้องหลัง)
+const optimisticActionsMap = new Map();
 
 // 🟢 โหลดรายการเสียงของระบบล่วงหน้าสำหรับทุกเบราว์เซอร์
 let availableTTSVoices = [];
@@ -132,7 +135,7 @@ function isCurrentUserAdmin() {
 
 // 🟢 เล่นเสียงแจ้งเตือนภาษาไทย (สแกนเพศเสียงแม่นยำ 100%: ชาย = ครับ / หญิง = ค่ะ)
 function playTTSNotification(text) {
-    if (!isUserLoggedIn()) return; // ⛔ บล็อกเสียงพูดถ้าอยู่ในหน้าล็อกอิน
+    if (!isUserLoggedIn()) return;
     try {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
@@ -144,7 +147,6 @@ function playTTSNotification(text) {
             let isMale = false;
 
             if (thaiVoices.length > 0) {
-                // 1. ค้นหาเสียงผู้หญิงภาษาไทยเป็นลำดับแรกสุด
                 selectedVoice = thaiVoices.find(v => {
                     const nameLower = v.name.toLowerCase();
                     return (
@@ -158,12 +160,10 @@ function playTTSNotification(text) {
                     );
                 });
 
-                // 2. ถ้าไม่มีเสียงผู้หญิงเฉพาะ ให้ใช้เสียงภาษาไทยที่มีอยู่ในเครื่อง
                 if (!selectedVoice) {
                     selectedVoice = thaiVoices[0];
                 }
 
-                // 3. ตรวจสอบชื่อเสียงเพื่อระบุเพศผู้ชายอย่างแม่นยำ
                 const activeVoiceName = selectedVoice.name.toLowerCase();
                 if (
                     activeVoiceName.includes('pattara') || 
@@ -178,10 +178,8 @@ function playTTSNotification(text) {
                 }
             }
 
-            // ตัดคำลงท้ายเดิมออกก่อน เพื่อไม่ให้พูดคำลงท้ายซ้ำ
             let cleanText = String(text).replace(/(ค่ะ|ครับ|คะ)$/g, '').trim();
 
-            // เติมคำลงท้ายตรงตามเพศของเสียงพูด 100%
             if (isMale) {
                 cleanText += " ครับ";
             } else {
@@ -195,7 +193,6 @@ function playTTSNotification(text) {
                 utter.voice = selectedVoice;
             }
 
-            // ปรับโทนเสียง (Pitch): ผู้ชายใช้คีย์ปกติ 1.0 / ผู้หญิงใช้คีย์สดใส 1.2
             utter.pitch = isMale ? 1.0 : 1.2;
             utter.rate = 1.05;
 
@@ -206,7 +203,7 @@ function playTTSNotification(text) {
     }
 }
 
-// 🟢 ระบบ Auto-Refresh หน้ารายการสินค้าอัตโนมัติเมื่อมีความเปลี่ยนแปลง
+// 🟢 ระบบ Auto-Refresh หน้ารายการสินค้าแบบเฉพาะกิจ (ทำงานเฉพาะเมื่อผู้ใช้อนุมัติ/ปฏิเสธเท่านั้น ไม่รีเฟรชเองพร่ำเพรื่อ)
 function triggerAutoUIRefresh() {
     if (!isUserLoggedIn()) return;
     try {
@@ -219,7 +216,7 @@ function triggerAutoUIRefresh() {
     }
 }
 
-// 🟢 ดึงหรือสร้าง Supabase Client 100% (Secure Instance Retrieval)
+// 🟢 ดึงหรือสร้าง Supabase Client 100%
 function getSupabaseClient() {
     if (typeof _supabase !== 'undefined' && _supabase && typeof _supabase.from === 'function') return _supabase;
     if (window._supabase && typeof window._supabase.from === 'function') return window._supabase;
@@ -233,7 +230,7 @@ function getSupabaseClient() {
             return window._supabase;
         }
     } catch(e) {
-        // Safe catch to protect credentials and connection errors
+        // Safe Catch
     }
     return null;
 }
@@ -343,7 +340,7 @@ async function createPendingApprovalRequest(type, desc, targetSns, payloadData) 
 }
 
 // -------------------------------------------------------------------------
-// 3. โหลดคำขออนุมัติจาก DB & แยกการแจ้งเตือน (บล็อกการแจ้งเตือนในหน้า Login)
+// 3. โหลดคำขออนุมัติจาก DB & แยกการแจ้งเตือน (ผนวก Optimistic UI Protection)
 // -------------------------------------------------------------------------
 async function loadPendingApprovalsFromDB() {
     let mergedData = [];
@@ -374,11 +371,31 @@ async function loadPendingApprovalsFromDB() {
     }
 
     if (mergedData) {
+        // 🛡️ ป้องกันไม่ให้ DB Override สถานะที่เราเพิ่งกด อนุมัติ/ปฏิเสธ ทันที (Optimistic Lock)
+        const now = Date.now();
+        mergedData = mergedData.map(item => {
+            const key = String(item.id);
+            if (optimisticActionsMap.has(key)) {
+                const opt = optimisticActionsMap.get(key);
+                // หากทำรายการยังไม่เกิน 15 วินาที ให้ใช้สถานะ Optimistic
+                if (now - opt.timestamp < 15000) {
+                    return {
+                        ...item,
+                        status: opt.status,
+                        approved_by: opt.approved_by || item.approved_by,
+                        updated_at: opt.updated_at || item.updated_at
+                    };
+                } else {
+                    optimisticActionsMap.delete(key);
+                }
+            }
+            return item;
+        });
+
         const pendingCount = mergedData.filter(r => r.status === 'PENDING').length;
         const loggedIn = isUserLoggedIn();
         const isAdmin = isCurrentUserAdmin();
 
-        // 🚨 บล็อกการแสดงผลแจ้งเตือนทุกชนิดในหน้า Login
         if (!loggedIn) {
             updateAdminApprovalBadgeUI(0);
             mergedData.forEach(req => {
@@ -388,7 +405,6 @@ async function loadPendingApprovalsFromDB() {
             return;
         }
 
-        // 🟢 ADMIN ONLY (หลังจากใส่รหัสผ่านล็อกอินสำเร็จแล้วเท่านั้น)
         if (isAdmin) {
             mergedData.forEach(req => {
                 if (req.status === 'PENDING') {
@@ -402,7 +418,6 @@ async function loadPendingApprovalsFromDB() {
         } else {
             updateAdminApprovalBadgeUI(0);
 
-            // 🟢 USER ONLY (หลังจากใส่รหัสผ่านล็อกอินสำเร็จแล้วเท่านั้น)
             if (typeof currentUser !== 'undefined' && currentUser && currentUser.username) {
                 mergedData.forEach(req => {
                     if (req.requester_username === currentUser.username) {
@@ -435,7 +450,7 @@ async function loadPendingApprovalsFromDB() {
 }
 
 // -------------------------------------------------------------------------
-// 4. Render ตารางรายการอนุมัติและประวัติทั้งหมด
+// 4. Render ตารางรายการอนุมัติ (Modern UX/UI Design & Micro-animations)
 // -------------------------------------------------------------------------
 function renderApprovalsTable(approvals) {
     if (!isUserLoggedIn()) return;
@@ -447,7 +462,19 @@ function renderApprovalsTable(approvals) {
     if (!tbody) return;
 
     if (!approvals || approvals.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:#64748b;">ไม่มีรายการคำขอในขณะนี้</td></tr>`;
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" style="text-align:center; padding:48px 20px; color:#94a3b8; background:#ffffff; border-radius:12px;">
+                    <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+                        <div style="width:56px; height:56px; background:#f1f5f9; border-radius:50%; display:flex; align-items:center; justify-content:center; margin-bottom:4px;">
+                            <i class="fa-solid fa-inbox" style="font-size:1.8rem; color:#94a3b8;"></i>
+                        </div>
+                        <span style="font-size:0.95rem; font-weight:700; color:#475569;">ไม่มีรายการคำขอในขณะนี้</span>
+                        <span style="font-size:0.8rem; color:#94a3b8;">คำขอใหม่จะปรากฏที่นี่เมื่อมีการส่งเรื่องเข้ามา</span>
+                    </div>
+                </td>
+            </tr>
+        `;
         return;
     }
 
@@ -455,14 +482,14 @@ function renderApprovalsTable(approvals) {
     const isAdmin = isCurrentUserAdmin();
 
     approvals.forEach((item, idx) => {
-        let statusBadge = `<span style="background:#fef3c7; color:#d97706; padding:4px 10px; border-radius:12px; font-weight:700; font-size:0.8rem; display:inline-block;">⏳ รออนุมัติ</span>`;
+        let statusBadge = `<span style="background:linear-gradient(135deg, #fffbeb, #fef3c7); color:#b45309; border:1px solid #fde68a; padding:5px 12px; border-radius:20px; font-weight:700; font-size:0.78rem; display:inline-flex; align-items:center; gap:5px; box-shadow:0 1px 2px rgba(0,0,0,0.04);"><i class="fa-solid fa-hourglass-half fa-spin-pulse" style="font-size:0.75rem;"></i> รออนุมัติ</span>`;
         if (item.status === 'APPROVED') {
-            statusBadge = `<span style="background:#d1fae5; color:#059669; padding:4px 10px; border-radius:12px; font-weight:700; font-size:0.8rem; display:inline-block;">✅ อนุมัติแล้ว</span>`;
+            statusBadge = `<span style="background:linear-gradient(135deg, #ecfdf5, #d1fae5); color:#047857; border:1px solid #a7f3d0; padding:5px 12px; border-radius:20px; font-weight:700; font-size:0.78rem; display:inline-flex; align-items:center; gap:5px; box-shadow:0 1px 2px rgba(0,0,0,0.04);"><i class="fa-solid fa-circle-check" style="font-size:0.8rem;"></i> อนุมัติแล้ว</span>`;
         } else if (item.status === 'REJECTED') {
-            statusBadge = `<span style="background:#fee2e2; color:#dc2626; padding:4px 10px; border-radius:12px; font-weight:700; font-size:0.8rem; display:inline-block;">❌ ปฏิเสธ</span>`;
+            statusBadge = `<span style="background:linear-gradient(135deg, #fef2f2, #fee2e2); color:#b91c1c; border:1px solid #fca5a5; padding:5px 12px; border-radius:20px; font-weight:700; font-size:0.78rem; display:inline-flex; align-items:center; gap:5px; box-shadow:0 1px 2px rgba(0,0,0,0.04);"><i class="fa-solid fa-circle-xmark" style="font-size:0.8rem;"></i> ปฏิเสธแล้ว</span>`;
         }
 
-        const formattedDate = item.created_at ? new Date(item.created_at).toLocaleString('th-TH') : '-';
+        const formattedDate = item.created_at ? new Date(item.created_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '-';
         
         let snsFormattedHtml = '-';
         const targetSnsArr = Array.isArray(item.target_sns) ? item.target_sns : (item.target_sns ? [item.target_sns] : []);
@@ -470,15 +497,16 @@ function renderApprovalsTable(approvals) {
         if (targetSnsArr.length > 0) {
             const snTags = targetSnsArr.map(sn => 
                 `<code style="
-                    background: #f1f5f9; 
+                    background: #f8fafc; 
                     color: #0f172a; 
-                    padding: 2px 6px; 
-                    border-radius: 4px; 
+                    padding: 3px 8px; 
+                    border-radius: 6px; 
                     font-size: 0.78rem; 
                     font-weight: 700;
-                    border: 1px solid #e2e8f0;
+                    border: 1px solid #cbd5e1;
                     white-space: nowrap;
                     display: inline-block;
+                    font-family: 'JetBrains Mono', Consolas, monospace;
                 ">${escapeHTML(String(sn))}</code>`
             ).join('');
 
@@ -486,9 +514,9 @@ function renderApprovalsTable(approvals) {
                 <div style="
                     display: flex; 
                     flex-wrap: wrap; 
-                    gap: 4px; 
-                    max-width: 220px; 
-                    max-height: 80px; 
+                    gap: 5px; 
+                    max-width: 260px; 
+                    max-height: 90px; 
                     overflow-y: auto; 
                     padding: 2px;
                 ">
@@ -497,19 +525,35 @@ function renderApprovalsTable(approvals) {
             `;
         }
 
+        const actionCellId = `action_cell_${escapeHTML(String(item.id))}`;
+
         html += `
-            <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="text-align:center; padding:12px;" class="mono">${idx + 1}</td>
-                <td style="font-size:0.8rem; color:#64748b; padding:12px;">${escapeHTML(formattedDate)}</td>
-                <td style="padding:12px;"><strong>${escapeHTML(item.requester_name || '-')}</strong><br><small style="color:#64748b;">(${escapeHTML(item.requester_username || '-')})</small></td>
-                <td style="padding:12px;"><span style="font-weight:700; color:#0284c7; background:#e0f2fe; padding:2px 6px; border-radius:4px; font-size:0.8rem;">${escapeHTML(item.request_type || '-')}</span> ${statusBadge}</td>
-                <td style="padding:12px; max-width:250px; word-break:break-word;">${escapeHTML(item.description || '-')}</td>
-                <td style="padding:12px;">${snsFormattedHtml}</td>
-                <td style="text-align:center; padding:12px;">
+            <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+                <td style="text-align:center; padding:14px 10px; font-weight:700; color:#64748b;" class="mono">${idx + 1}</td>
+                <td style="font-size:0.78rem; color:#64748b; padding:14px 10px; font-weight:500;">${escapeHTML(formattedDate)}</td>
+                <td style="padding:14px 10px;">
+                    <div style="font-weight:700; color:#0f172a; font-size:0.88rem;">${escapeHTML(item.requester_name || '-')}</div>
+                    <div style="font-size:0.75rem; color:#64748b; margin-top:2px;">@${escapeHTML(item.requester_username || '-')}</div>
+                </td>
+                <td style="padding:14px 10px; vertical-align:middle;">
+                    <div style="display:inline-flex; flex-direction:column; gap:5px;">
+                        <span style="font-weight:800; color:#0369a1; background:#e0f2fe; border:1px solid #bae6fd; padding:3px 9px; border-radius:6px; font-size:0.75rem; display:inline-block; width:fit-content;">${escapeHTML(item.request_type || '-')}</span>
+                        ${statusBadge}
+                    </div>
+                </td>
+                <td style="padding:14px 10px; max-width:260px; word-break:break-word; font-size:0.85rem; color:#334155; line-height:1.45; font-weight:500;">${escapeHTML(item.description || '-')}</td>
+                <td style="padding:14px 10px;">${snsFormattedHtml}</td>
+                <td id="${actionCellId}" style="text-align:center; padding:14px 10px; vertical-align:middle;">
                     ${(item.status === 'PENDING' && isAdmin) ? `
-                        <button onclick="approveUserRequest('${escapeHTML(String(item.id))}')" style="background:#10b981; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:700; margin-right:4px;"><i class="fa-solid fa-check"></i> อนุมัติ</button>
-                        <button onclick="rejectUserRequest('${escapeHTML(String(item.id))}')" style="background:#ef4444; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer; font-weight:700;"><i class="fa-solid fa-xmark"></i> ปฏิเสธ</button>
-                    ` : `<small style="color:#64748b;">${item.approved_by ? 'โดย ' + escapeHTML(item.approved_by) : '-'}</small>`}
+                        <div style="display:inline-flex; gap:6px;">
+                            <button id="btn_approve_${escapeHTML(String(item.id))}" onclick="approveUserRequest('${escapeHTML(String(item.id))}')" style="background:linear-gradient(135deg, #10b981, #059669); color:#ffffff; border:none; padding:8px 16px; border-radius:8px; cursor:pointer; font-weight:700; font-size:0.82rem; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 5px rgba(16,185,129,0.25); transition:all 0.15s ease;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='translateY(0)'">
+                                <i class="fa-solid fa-check"></i> อนุมัติ
+                            </button>
+                            <button id="btn_reject_${escapeHTML(String(item.id))}" onclick="rejectUserRequest('${escapeHTML(String(item.id))}')" style="background:linear-gradient(135deg, #ef4444, #dc2626); color:#ffffff; border:none; padding:8px 16px; border-radius:8px; cursor:pointer; font-weight:700; font-size:0.82rem; display:inline-flex; align-items:center; gap:6px; box-shadow:0 2px 5px rgba(239,68,68,0.25); transition:all 0.15s ease;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='translateY(0)'">
+                                <i class="fa-solid fa-xmark"></i> ปฏิเสธ
+                            </button>
+                        </div>
+                    ` : `<span style="font-size:0.78rem; font-weight:600; color:#64748b; background:#f1f5f9; padding:5px 12px; border-radius:6px; border:1px solid #e2e8f0;">${item.approved_by ? 'โดย ' + escapeHTML(item.approved_by) : '-'}</span>`}
                 </td>
             </tr>
         `;
@@ -572,9 +616,9 @@ function showFloatingNotificationAlert(title, message, type = 'info', isClickabl
 
     card.style.cssText = `
         background: #ffffff; border-left: 6px solid ${borderColor};
-        border-radius: 12px; padding: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+        border-radius: 12px; padding: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.15);
         color: #0f172a; pointer-events: auto; cursor: ${(isClickable && isCurrentUserAdmin()) ? 'pointer' : 'default'};
-        transition: all 0.3s ease; position: relative; font-family: sans-serif;
+        transition: all 0.3s ease; position: relative; font-family: system-ui, -apple-system, sans-serif;
     `;
 
     if (isClickable && isCurrentUserAdmin()) {
@@ -591,7 +635,7 @@ function showFloatingNotificationAlert(title, message, type = 'info', isClickabl
         </div>
         <div style="font-size: 0.88rem; color: #334155; white-space: pre-line;">${escapeHTML(message)}</div>
         ${(isClickable && isCurrentUserAdmin()) ? `<div style="margin-top:8px; font-weight:800; font-size:0.8rem; color:${borderColor};">👉 คลิกที่นี่เพื่อเปิดศูนย์อนุมัติคำขอทันที</div>` : ''}
-        <button onclick="this.parentElement.remove()" style="position:absolute; top:8px; right:12px; background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+        <button onclick="this.parentElement.remove()" style="position:absolute; top:8px; right:12px; background:none; border:none; font-size:1.2rem; cursor:pointer; color:#94a3b8;">&times;</button>
     `;
 
     container.appendChild(card);
@@ -615,20 +659,27 @@ function navigateToApprovalCenter() {
 }
 
 // -------------------------------------------------------------------------
-// 8. Realtime Engine (Fast Polling 1 วินาที + WebSocket Listener)
+// 8. Realtime Engine (Event-Driven Passive Monitor ไม่รีเฟรชรบกวนผู้ใช้)
 // -------------------------------------------------------------------------
 function startApprovalRealtimeMonitor() {
     initApprovalRealtimeSubscription();
     if (approvalPollingTimer) clearInterval(approvalPollingTimer);
 
+    // Initial load
     loadPendingApprovalsFromDB();
-    approvalPollingTimer = setInterval(loadPendingApprovalsFromDB, 1000);
+
+    // 🟢 ปรับเปลี่ยนเป็นแบบ Passive Refresh ทุกๆ 60 วินาที เพื่อดึงป้ายเตือนเบื้องหลัง โดยไม่รีเฟรชหน้าเว็บทั้งหน้า
+    approvalPollingTimer = setInterval(() => {
+        if (isUserLoggedIn()) {
+            loadPendingApprovalsFromDB();
+        }
+    }, 60000);
 }
 
 function initApprovalRealtimeSubscription() {
     const client = getSupabaseClient();
     if (!client) {
-        setTimeout(initApprovalRealtimeSubscription, 1000);
+        setTimeout(initApprovalRealtimeSubscription, 2000);
         return;
     }
 
@@ -640,40 +691,83 @@ function initApprovalRealtimeSubscription() {
         .channel('public_approval_requests_channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'approval_requests' }, () => {
             loadPendingApprovalsFromDB();
-            triggerAutoUIRefresh();
         })
         .subscribe();
 }
 
 // -------------------------------------------------------------------------
-// 9. Admin Actions (อนุมัติ / ปฏิเสธ)
+// 9. Admin Actions (ตอบสนองทันที 0ms Instant Optimistic Execution + Background Sync)
 // -------------------------------------------------------------------------
 async function approveUserRequest(id) {
     if (!isUserLoggedIn() || !isCurrentUserAdmin()) return;
 
-    const req = pendingApprovalsList.find(r => String(r.id) === String(id));
+    const idStr = String(id);
+    const req = pendingApprovalsList.find(r => String(r.id) === idStr);
     if (!req) return;
 
     const adminUser = (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.username || currentUser.name || 'admin') : 'admin';
-    const client = getSupabaseClient();
+    const nowIso = new Date().toISOString();
 
-    if (client) {
+    // ⚡⚡ 1. INSTANT DOM MUTATION (เปลี่ยนปุ่มปุ๊บปั๊บทันที 0ms บนหน้าจอ)
+    const actionCell = document.getElementById(`action_cell_${idStr}`);
+    if (actionCell) {
+        actionCell.innerHTML = `<span style="font-size:0.78rem; font-weight:600; color:#64748b; background:#f1f5f9; padding:5px 12px; border-radius:6px; border:1px solid #e2e8f0;">โดย ${escapeHTML(adminUser)}</span>`;
+    }
+
+    // ⚡⚡ 2. OPTIMISTIC STATE UPDATE & LOCK (อัปเดตความทรงจำระบบทันที)
+    req.status = 'APPROVED';
+    req.approved_by = adminUser;
+    req.updated_at = nowIso;
+
+    optimisticActionsMap.set(idStr, {
+        status: 'APPROVED',
+        approved_by: adminUser,
+        updated_at: nowIso,
+        timestamp: Date.now()
+    });
+
+    userTrackedRequestStatuses[idStr] = 'APPROVED';
+
+    // อัปเดตข้อมูลใน LocalStorage ทันที
+    const localList = getLocalApprovalsStore();
+    const foundLocal = localList.find(r => String(r.id) === idStr);
+    if (foundLocal) { 
+        foundLocal.status = 'APPROVED'; 
+        foundLocal.approved_by = adminUser; 
+        foundLocal.updated_at = nowIso;
+        saveLocalApprovalsStore(localList); 
+    }
+
+    // เรนเดอร์ UI ภาพรวมและอัปเดตป้ายแจ้งเตือนทันที
+    renderApprovalsTable(pendingApprovalsList);
+    const pendingCount = pendingApprovalsList.filter(r => r.status === 'PENDING').length;
+    updateAdminApprovalBadgeUI(pendingCount);
+
+    // แจ้งเตือนเสียงและ Toast
+    if (typeof showToast === 'function') showToast("✅ อนุมัติคำขอเรียบร้อยแล้ว");
+    playTTSNotification("ทำรายการอนุมัติเรียบร้อยแล้ว");
+
+    // 🟢 บังคับสั่งซิงค์ UI สต็อกสินค้าหลักทันทีเมื่อกดอนุมัติสำเร็จ
+    triggerAutoUIRefresh();
+
+    // ⚡⚡ 3. BACKGROUND ASYNC DB SYNCHRONIZATION (ส่งข้อมูลเข้า Supabase DB ในเบื้องหลัง)
+    (async () => {
+        const client = getSupabaseClient();
+        if (!client) return;
+
         try {
             const reqType = req.request_type;
             const targetSns = Array.isArray(req.target_sns) ? req.target_sns : [req.target_sns];
 
-            // 🟢 1. หากเป็นคำขอลบสินค้า หรือ จ่ายสินค้าออกจากคลัง
             if (reqType === 'DELETE' || reqType === 'OUTBOUND' || reqType === 'DISPATCH') {
                 await client.from('warehouse_items').delete().in('sn', targetSns);
             } 
-            // 🟢 2. หากเป็นคำขอย้ายพิกัดสินค้าเดี่ยว
             else if ((reqType === 'RELOCATE' || reqType === 'TRANSFER') && req.payload && req.payload.target_location) {
                 await client.from('warehouse_items').update({
                     location: req.payload.target_location,
                     updated_at: new Date().toISOString()
                 }).in('sn', targetSns);
             }
-            // 🟢 3. หากเป็นคำขอย้ายพิกัดสินค้าแบบกลุ่ม (Batch Relocate)
             else if (reqType === 'BATCH_RELOCATE' && req.payload && req.payload.target_aisle) {
                 const targetAisle = req.payload.target_aisle;
                 for (const sn of targetSns) {
@@ -685,41 +779,72 @@ async function approveUserRequest(id) {
                 }
             }
 
-            // อัปเดตสถานะคำขอเป็น APPROVED
             await client.from('approval_requests').update({
                 status: 'APPROVED',
                 approved_by: adminUser,
                 updated_at: new Date().toISOString()
             }).eq('id', id);
+
         } catch(e) {
-            console.error("Approve request execution failed:", e);
+            console.error("Background Approve execution error:", e);
         }
-    }
-
-    const localList = getLocalApprovalsStore();
-    const found = localList.find(r => String(r.id) === String(id));
-    if (found) { 
-        found.status = 'APPROVED'; 
-        found.approved_by = adminUser; 
-        saveLocalApprovalsStore(localList); 
-    }
-
-    if (typeof showToast === 'function') showToast("✅ อนุมัติคำขอเรียบร้อยแล้ว");
-    
-    triggerAutoUIRefresh();
-    await loadPendingApprovalsFromDB();
+    })();
 }
 
 async function rejectUserRequest(id) {
     if (!isUserLoggedIn() || !isCurrentUserAdmin()) return;
 
-    const req = pendingApprovalsList.find(r => String(r.id) === String(id));
+    const idStr = String(id);
+    const req = pendingApprovalsList.find(r => String(r.id) === idStr);
     if (!req) return;
 
     const adminUser = (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.username || currentUser.name || 'admin') : 'admin';
-    const client = getSupabaseClient();
+    const nowIso = new Date().toISOString();
 
-    if (client) {
+    // ⚡⚡ 1. INSTANT DOM MUTATION (เปลี่ยนปุ่มปุ๊บปั๊บทันที 0ms บนหน้าจอ)
+    const actionCell = document.getElementById(`action_cell_${idStr}`);
+    if (actionCell) {
+        actionCell.innerHTML = `<span style="font-size:0.78rem; font-weight:600; color:#64748b; background:#f1f5f9; padding:5px 12px; border-radius:6px; border:1px solid #e2e8f0;">โดย ${escapeHTML(adminUser)}</span>`;
+    }
+
+    // ⚡⚡ 2. OPTIMISTIC STATE UPDATE & LOCK (อัปเดตความทรงจำระบบทันที)
+    req.status = 'REJECTED';
+    req.approved_by = adminUser;
+    req.updated_at = nowIso;
+
+    optimisticActionsMap.set(idStr, {
+        status: 'REJECTED',
+        approved_by: adminUser,
+        updated_at: nowIso,
+        timestamp: Date.now()
+    });
+
+    userTrackedRequestStatuses[idStr] = 'REJECTED';
+
+    const localList = getLocalApprovalsStore();
+    const foundLocal = localList.find(r => String(r.id) === idStr);
+    if (foundLocal) { 
+        foundLocal.status = 'REJECTED'; 
+        foundLocal.approved_by = adminUser; 
+        foundLocal.updated_at = nowIso;
+        saveLocalApprovalsStore(localList); 
+    }
+
+    renderApprovalsTable(pendingApprovalsList);
+    const pendingCount = pendingApprovalsList.filter(r => r.status === 'PENDING').length;
+    updateAdminApprovalBadgeUI(pendingCount);
+
+    if (typeof showToast === 'function') showToast("⛔ ปฏิเสธคำขอเรียบร้อยแล้ว");
+    playTTSNotification("ปฏิเสธคำขอเรียบร้อยแล้ว");
+
+    // 🟢 บังคับสั่งซิงค์ UI สต็อกสินค้าหลักทันทีเมื่อกดปฏิเสธสำเร็จ
+    triggerAutoUIRefresh();
+
+    // ⚡⚡ 3. BACKGROUND ASYNC DB SYNCHRONIZATION (ส่งข้อมูลเข้า Supabase DB ในเบื้องหลัง)
+    (async () => {
+        const client = getSupabaseClient();
+        if (!client) return;
+
         try {
             await client.from('approval_requests').update({
                 status: 'REJECTED',
@@ -727,18 +852,9 @@ async function rejectUserRequest(id) {
                 updated_at: new Date().toISOString()
             }).eq('id', id);
         } catch(e) {
-            // Safe Catch
+            console.error("Background Reject execution error:", e);
         }
-    }
-
-    const localList = getLocalApprovalsStore();
-    const found = localList.find(r => String(r.id) === String(id));
-    if (found) { found.status = 'REJECTED'; found.approved_by = adminUser; saveLocalApprovalsStore(localList); }
-
-    if (typeof showToast === 'function') showToast("⛔ ปฏิเสธคำขอเรียบร้อยแล้ว");
-    
-    triggerAutoUIRefresh();
-    await loadPendingApprovalsFromDB();
+    })();
 }
 
 // -------------------------------------------------------------------------

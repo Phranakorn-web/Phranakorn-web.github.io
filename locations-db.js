@@ -1756,17 +1756,17 @@ function triggerPrintPdfBarcodeAction(sn, size = activeBarcodeSize) {
 }
 
 // -------------------------------------------------------------------------
-// 9. ลบสินค้า / ขอลบสินค้า
+// 9. ลบสินค้า / ขอลบสินค้า ใน locations-db.js
 // -------------------------------------------------------------------------
 function triggerDeleteFromSlot(sn) {
     closeSlotItemInspectModal();
-    const isAdmin = (typeof currentUser !== 'undefined' && currentUser && currentUser.role === 'admin');
     const inventory = (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) ? globalInventoryData : [];
     const item = inventory.find(i => i && i.sn === sn);
 
     if (typeof requestDeleteModal === 'function') {
         const safeId = item ? String(item.id || '') : '';
-        requestDeleteModal('SINGLE', sn, safeId);
+        const safeSn = item ? String(item.sn || sn) : String(sn);
+        requestDeleteModal('SINGLE', safeSn, safeId);
         return;
     }
 
@@ -1777,44 +1777,22 @@ function triggerDeleteFromSlot(sn) {
         if (confirmBtn) {
             confirmBtn.onclick = async function() {
                 closeModalElement(modal);
-
-                if (isAdmin) {
-                    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
-                    if (client) {
-                        try {
-                            await client.from('warehouse_items').delete().eq('sn', sn);
-                        } catch(err) {}
-                    }
-
-                    const idx = inventory.findIndex(i => i && i.sn === sn);
-                    if (idx !== -1) inventory.splice(idx, 1);
-
-                    if (typeof showToast === 'function') showToast(`🗑️ ลบรายการ S/N: ${sn} เรียบร้อยแล้ว`);
-                } else {
-                    if (typeof showToast === 'function') showToast(`📩 ส่งคำขออนุมัติลบ S/N: ${sn} เรียบร้อยแล้วค่ะ`);
+                if (typeof executeDeleteAction === 'function') {
+                    window.pendingDeleteMode = 'SINGLE';
+                    window.pendingDeleteSn = sn;
+                    window.pendingDeleteId = item ? item.id : null;
+                    await executeDeleteAction(true);
                 }
-                
-                refreshLocationVisualizerIfActive();
             };
         }
     } else {
-        if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการ${isAdmin ? 'ลบ' : 'ส่งคำขอลบ'} S/N: ${sn}?`)) {
-            (async () => {
-                if (isAdmin) {
-                    const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : null;
-                    if (client) {
-                        try {
-                            await client.from('warehouse_items').delete().eq('sn', sn);
-                        } catch(err) {}
-                    }
-                    const idx = inventory.findIndex(i => i && i.sn === sn);
-                    if (idx !== -1) inventory.splice(idx, 1);
-                    if (typeof showToast === 'function') showToast(`🗑️ ลบรายการ S/N: ${sn} เรียบร้อยแล้ว`);
-                } else {
-                    if (typeof showToast === 'function') showToast(`📩 ส่งคำขออนุมัติลบ S/N: ${sn} เรียบร้อยแล้ว`);
-                }
-                refreshLocationVisualizerIfActive();
-            })();
+        if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ S/N: ${sn}?`)) {
+            if (typeof executeDeleteAction === 'function') {
+                window.pendingDeleteMode = 'SINGLE';
+                window.pendingDeleteSn = sn;
+                window.pendingDeleteId = item ? item.id : null;
+                executeDeleteAction(true);
+            }
         }
     }
 }
