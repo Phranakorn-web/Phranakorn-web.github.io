@@ -1,5 +1,5 @@
 // =========================================================================
-// --- MODULE 9: AUTHENTICATION, USER ROLES & SECURITY ENGINE ---
+// --- MODULE 9: AUTHENTICATION, USER ROLES & SECURITY ENGINE (ULTRA-FAST & BIOMETRIC READY) ---
 // =========================================================================
 
 // ⚡ ขจัดรหัสผ่านออกจาก Source Code เพื่อความปลอดภัยสูงสุด (Zero Hardcoded Passwords)
@@ -28,14 +28,14 @@ function normalizeUserRole(username, rawRole) {
         return 'admin';
     }
     const cleanRole = String(rawRole || '').trim().toLowerCase();
-    if (cleanRole === 'admin' || cleanRole === 'superadmin' || cleanRole === 'manager') {
-        return cleanRole;
+    if (cleanRole === 'admin' || cleanRole === 'superadmin' || cleanRole === 'manager' || cleanRole.includes('ผู้ดูแลระบบ')) {
+        return 'admin';
     }
     return 'user';
 }
 
 /**
- * ⚡ ปลดล็อกและแสดงผลเมนูตั้งค่าผู้ดูแลระบบ (Admin UI Unlock Engine)
+ * ⚡ ปลดล็อกและแสดงผลเมนูตั้งค่าผู้ดูแลระบบ และผังตำแหน่งคลังสินค้า (Admin UI Unlock & Security Guard Engine)
  */
 function applyAdminPermissionsUI() {
     if (!currentUser) return;
@@ -44,6 +44,7 @@ function applyAdminPermissionsUI() {
     isAdminAuthenticatedSession = isAdmin;
     window.isAdminAuthenticatedSession = isAdmin;
 
+    // Selector สำหรับเมนู/ส่วนประกอบที่สงวนสิทธิ์ไว้เฉพาะ Admin เท่านั้น (รวมถึงผังตำแหน่งคลังสินค้า view-locations)
     const adminSelectors = [
         '#view-settings', 
         '.admin-only', 
@@ -53,7 +54,19 @@ function applyAdminPermissionsUI() {
         '.nav-settings',
         'a[href*="view-settings"]',
         'button[onclick*="view-settings"]',
-        'li[data-target="view-settings"]'
+        'li[data-target="view-settings"]',
+        // 🔒 เพิ่ม Selector ควบคุมการแสดงผลผังตำแหน่งคลังสินค้า (view-locations) ให้เฉพาะ Admin เท่านั้น
+        '#view-locations-nav',
+        '#menu-view-locations',
+        '[data-menu="view-locations"]',
+        '[data-view="view-locations"]',
+        '.nav-locations',
+        'a[href*="view-locations"]',
+        'button[onclick*="view-locations"]',
+        'li[data-target="view-locations"]',
+        'a[href="#view-locations"]',
+        '.menu-view-locations',
+        'li[data-menu="view-locations"]'
     ];
 
     adminSelectors.forEach(selector => {
@@ -63,9 +76,19 @@ function applyAdminPermissionsUI() {
                 el.classList.remove('hidden', 'd-none', 'is-hidden');
             } else {
                 el.style.display = 'none';
+                el.classList.add('hidden', 'is-hidden');
             }
         });
     });
+
+    // 🛡️ ป้องกันกรณี User ทั่วไปพยายามพิมพ์ URL Hash เข้าหน้า view-locations โดยตรง
+    if (!isAdmin) {
+        const locationsSection = document.getElementById('view-locations');
+        if (locationsSection && (locationsSection.style.display !== 'none' || locationsSection.classList.contains('active'))) {
+            if (typeof switchView === 'function') switchView('view-inventory');
+            else if (typeof showView === 'function') showView('view-inventory');
+        }
+    }
 }
 
 function resetAutoLogoutTimer() {
@@ -81,7 +104,7 @@ function resetAutoLogoutTimer() {
 async function checkUserSessionStatus() {
     if (!currentUser || !navigator.onLine) return;
     try {
-        const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : _supabase;
+        const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
         if (!client) return;
 
         const { data, error } = await client
@@ -114,7 +137,7 @@ async function loadUsersFromDB() {
         }
 
         if (navigator.onLine) {
-            const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : _supabase;
+            const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
             if (client) {
                 const { data, error } = await client
                     .from('profiles')
@@ -149,8 +172,7 @@ async function loadUsersFromDB() {
 }
 
 async function initAuthSystem() {
-    await loadUsersFromDB();
-
+    // ⚡ แสดงผล UI ทันที 0ms โดยไม่ต้องรอ DB ตอบกลับ
     setupCleanAuthUIAndFastInputs();
     checkBiometricHardwareSupport();
 
@@ -167,7 +189,7 @@ async function initAuthSystem() {
             
             localStorage.setItem('WMS_ACTIVE_USER', JSON.stringify(currentUser));
 
-            const loginOverlay = document.getElementById('loginOverlay');
+            const loginOverlay = document.getElementById('loginOverlay') || document.getElementById('loginModal');
             if (loginOverlay) loginOverlay.style.display = 'none';
             
             const nameElem = document.getElementById('currentUserNameText');
@@ -180,11 +202,15 @@ async function initAuthSystem() {
             if (typeof renderSidebarMenu === 'function') renderSidebarMenu();
             if (typeof handleHashRouting === 'function') handleHashRouting();
             if (typeof showToast === 'function') showToast(`👋 ยินดีต้อนรับกลับ คุณ ${currentUser.name || currentUser.full_name}`);
+            
+            // โหลดผู้ใช้ในเบื้องหลัง
+            loadUsersFromDB();
             return;
         }
     }
 
     forceShowLoginOverlay();
+    loadUsersFromDB();
 }
 
 function forceShowLoginOverlay() {
@@ -194,7 +220,7 @@ function forceShowLoginOverlay() {
     localStorage.removeItem('WMS_ACTIVE_USER');
     localStorage.removeItem('WMS_LAST_ACTIVE_TIME');
     
-    const loginOverlay = document.getElementById('loginOverlay');
+    const loginOverlay = document.getElementById('loginOverlay') || document.getElementById('loginModal');
     if (loginOverlay) loginOverlay.style.display = 'flex';
     
     const uInput = document.getElementById('loginUsername');
@@ -225,7 +251,7 @@ async function handleSystemLogin(e) {
 
     if (navigator.onLine) {
         try {
-            const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : _supabase;
+            const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
             if (client) {
                 const { data, error } = await client
                     .from('profiles')
@@ -275,7 +301,7 @@ async function handleSystemLogin(e) {
         localStorage.setItem('WMS_LAST_ACTIVE_TIME', Date.now().toString());
 
         // ⚡ สลับดีดหน้าต่างเข้าสู่หน้าหลักทันที 0ms
-        const loginOverlay = document.getElementById('loginOverlay');
+        const loginOverlay = document.getElementById('loginOverlay') || document.getElementById('loginModal');
         const errAlert = document.getElementById('loginErrorAlert');
         const nameText = document.getElementById('currentUserNameText');
 
@@ -331,18 +357,39 @@ async function handleSystemLogin(e) {
 }
 
 // =========================================================================
-// --- MODULE 9.1: BIOMETRIC AUTHENTICATION & WEBAUTHN ENGINE ---
+// --- MODULE 9.1: BIOMETRIC AUTHENTICATION & WEBAUTHN SERVER-READY ENGINE ---
 // =========================================================================
 
+/**
+ * ⚡ ตรวจสอบการรองรับลายนิ้วมือ รองรับทั้ง Localhost และ HTTPS Server / Google Cloud
+ */
 async function checkBiometricHardwareSupport() {
     const bioBtn = document.getElementById('biometricLoginBtn');
     if (!bioBtn) return;
 
-    if (window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()) {
-        bioBtn.style.display = 'inline-flex';
-    } else {
-        bioBtn.style.display = 'none';
+    // แสดงปุ่มสแกนรอทันที 100%
+    bioBtn.style.display = 'inline-flex';
+
+    if (!window.PublicKeyCredential) {
+        bioBtn.title = "เบราว์เซอร์ไม่รองรับ WebAuthn / Biometrics";
+        return;
     }
+
+    if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        console.warn("⚠️ สแกนลายนิ้วมือต้องการการเชื่อมต่อแบบ HTTPS เมื่อขึ้นใช้งานบนเซิร์ฟเวอร์จริง");
+        bioBtn.title = "ระบบสแกนลายนิ้วมือต้องใช้งานผ่านโปรโตคอล HTTPS";
+    }
+}
+
+/**
+ * ⚡ ดึง RP ID ที่ถูกต้องตาม Domain / Server เพื่อให้ WebAuthn ทำงานบน Cloud / Google ได้ 100%
+ */
+function getWebAuthnRpId() {
+    const host = window.location.hostname;
+    if (!host || host === 'localhost' || host === '127.0.0.1' || /^(\d{1,3}\.){3}\d{1,3}$/.test(host)) {
+        return undefined; // ให้ใช้อัตโนมัติจาก Browser Context
+    }
+    return host;
 }
 
 async function registerBiometricAuth(targetUser = null) {
@@ -358,14 +405,23 @@ async function registerBiometricAuth(targetUser = null) {
         return false;
     }
 
+    if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        alert("🔒 การลงทะเบียนลายนิ้วมือต้องใช้งานผ่านระบบ HTTPS บนเซิร์ฟเวอร์จริงเท่านั้น");
+        return false;
+    }
+
     try {
         const challenge = new Uint8Array(32);
         window.crypto.getRandomValues(challenge);
 
+        const rpId = getWebAuthnRpId();
+        const rpConfig = { name: "WMS Inventory Enterprise System" };
+        if (rpId) rpConfig.id = rpId;
+
         const createOptions = {
             publicKey: {
                 challenge: challenge,
-                rp: { name: "WMS Inventory Enterprise System", id: window.location.hostname },
+                rp: rpConfig,
                 user: {
                     id: Uint8Array.from(userToRegister.username, c => c.charCodeAt(0)),
                     name: userToRegister.username,
@@ -391,7 +447,7 @@ async function registerBiometricAuth(targetUser = null) {
             localStorage.setItem('WMS_LAST_BIOMETRIC_USER', userKey);
 
             if (navigator.onLine) {
-                const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : _supabase;
+                const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
                 if (client) {
                     await client.from('profiles').update({ biometric_credential: bioData }).ilike('username', userToRegister.username);
                 }
@@ -409,11 +465,16 @@ async function registerBiometricAuth(targetUser = null) {
 }
 
 /**
- * ⚡ ระบบสแกนลายนิ้วมือล็อกอิน + Auto-Sync โปรไฟล์แอดมินเต็มรูปแบบ และโชว์ประวัติ Realtime
+ * ⚡ ระบบสแกนลายนิ้วมือล็อกอิน + Auto-Sync โปรไฟล์แอดมินเต็มรูปแบบ (รองรับเซิร์ฟเวอร์จริงและ Google Cloud 100%)
  */
 async function handleBiometricLogin() {
     if (!window.PublicKeyCredential) {
-        if (typeof showToast === 'function') showToast("❌ อุปกรณ์ไม่รองรับการสแกนลายนิ้วมือ", true);
+        if (typeof showToast === 'function') showToast("❌ อุปกรณ์หรือเบราว์เซอร์ไม่รองรับการสแกนลายนิ้วมือ", true);
+        return;
+    }
+
+    if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        if (typeof showToast === 'function') showToast("🔒 การสแกนลายนิ้วมือบนเซิร์ฟเวอร์ต้องใช้งานผ่าน HTTPS", true);
         return;
     }
 
@@ -422,7 +483,7 @@ async function handleBiometricLogin() {
     let allowedCredentials = [];
     let credentialsMap = new Map();
 
-    // 1. ค้นหาจาก LocalStorage
+    // 1. ค้นหาจาก LocalStorage ในเครื่อง
     for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && key.startsWith(WEBAUTHN_CREDENTIAL_KEY)) {
@@ -437,7 +498,7 @@ async function handleBiometricLogin() {
         }
     }
 
-    // 2. ค้นหาเพิ่มเติมจาก systemUsers ที่ดึงมาจาก Supabase
+    // 2. ค้นหาเพิ่มเติมจาก systemUsers
     if (Array.isArray(systemUsers)) {
         systemUsers.forEach(u => {
             if (u.biometric_credential && u.biometric_credential.rawId) {
@@ -446,6 +507,31 @@ async function handleBiometricLogin() {
                 credentialsMap.set(u.biometric_credential.rawId.join(','), u);
             }
         });
+    }
+
+    // 3. หากยังไม่พบ และออนไลน์ ดึงข้อมูลไบโอเมตริกโดยตรงจาก Supabase DB 
+    if (allowedCredentials.length === 0 && navigator.onLine) {
+        try {
+            const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
+            if (client) {
+                let query = client.from('profiles').select('username, full_name, role, biometric_credential').not('biometric_credential', 'is', null);
+                if (uInput) query = query.ilike('username', uInput);
+                const { data } = await query;
+                if (data && data.length > 0) {
+                    data.forEach(dbUser => {
+                        if (dbUser.biometric_credential && dbUser.biometric_credential.rawId) {
+                            const rawUint8 = new Uint8Array(dbUser.biometric_credential.rawId);
+                            allowedCredentials.push({ id: rawUint8, type: 'public-key' });
+                            credentialsMap.set(dbUser.biometric_credential.rawId.join(','), {
+                                username: dbUser.username,
+                                name: dbUser.full_name || dbUser.username,
+                                role: dbUser.role || 'user'
+                            });
+                        }
+                    });
+                }
+            }
+        } catch(e) {}
     }
 
     if (uInput) {
@@ -460,11 +546,6 @@ async function handleBiometricLogin() {
         }
     }
 
-    if (allowedCredentials.length === 0) {
-        if (typeof showToast === 'function') showToast("⚠️ ไม่พบข้อมูลลายนิ้วมือในระบบ กรุณาล็อกอินแล้วลงทะเบียนสแกนก่อน", true);
-        return;
-    }
-
     try {
         const challenge = new Uint8Array(32);
         window.crypto.getRandomValues(challenge);
@@ -472,11 +553,19 @@ async function handleBiometricLogin() {
         const getOptions = {
             publicKey: {
                 challenge: challenge,
-                allowCredentials: allowedCredentials,
                 userVerification: "required",
                 timeout: 60000
             }
         };
+
+        if (allowedCredentials.length > 0) {
+            getOptions.publicKey.allowCredentials = allowedCredentials;
+        }
+
+        const rpId = getWebAuthnRpId();
+        if (rpId) {
+            getOptions.publicKey.rpId = rpId;
+        }
 
         const assertion = await navigator.credentials.get(getOptions);
         if (assertion) {
@@ -491,7 +580,7 @@ async function handleBiometricLogin() {
                 matchedUser = DEFAULT_USERS[0]; 
             }
 
-            // ⚡ สมทบข้อมูลโปรไฟล์จริงจาก systemUsers (DB) ป้องกันปัญหาขาด ID และข้อมูลชื่อเต็ม
+            // ⚡ สมทบข้อมูลโปรไฟล์จริงจาก systemUsers (DB)
             const dbFullUser = systemUsers.find(u => u.username.toLowerCase() === matchedUser.username.toLowerCase());
             if (dbFullUser) {
                 matchedUser = { ...matchedUser, ...dbFullUser };
@@ -504,8 +593,8 @@ async function handleBiometricLogin() {
             localStorage.setItem('WMS_ACTIVE_USER', JSON.stringify(currentUser));
             localStorage.setItem('WMS_LAST_ACTIVE_TIME', Date.now().toString());
 
-            // ⚡ ดีดสลับเข้าสู่หน้าหลักอย่างรวดเร็ว
-            const loginOverlay = document.getElementById('loginOverlay');
+            // ⚡ ดีดสลับเข้าสู่หน้าหลักอย่างรวดเร็ว 0ms
+            const loginOverlay = document.getElementById('loginOverlay') || document.getElementById('loginModal');
             const nameText = document.getElementById('currentUserNameText');
 
             if (loginOverlay) loginOverlay.style.display = 'none';
@@ -578,7 +667,7 @@ function setupCleanAuthUIAndFastInputs() {
                 background: #ffffff !important;
             }
             .biometric-login-btn {
-                display: inline-flex;
+                display: inline-flex !important;
                 align-items: center;
                 justify-content: center;
                 gap: 10px;
@@ -627,7 +716,7 @@ function setupCleanAuthUIAndFastInputs() {
             input.dataset.fastBound = 'true';
         });
 
-        const loginForm = document.getElementById('loginForm') || document.querySelector('#loginOverlay form');
+        const loginForm = document.getElementById('loginForm') || document.querySelector('#loginOverlay form') || document.querySelector('#loginModal form') || document.querySelector('.login-container');
         if (loginForm && !document.getElementById('biometricLoginBtn')) {
             const bioBtnHTML = `
                 <button type="button" id="biometricLoginBtn" class="biometric-login-btn" onclick="handleBiometricLogin()">
@@ -677,7 +766,7 @@ async function kickUserSession(targetUsername) {
     if (confirm(`🚨 คุณแน่ใจหรือไม่ที่จะสั่งเตะผู้ใช้ "${targetUsername}" ออกจากระบบทันที?`)) {
         if (navigator.onLine) {
             try {
-                const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : _supabase;
+                const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
                 if (client) {
                     await client.from('profiles').update({ is_kicked: true, force_logout: true }).ilike('username', targetUsername);
                 }
@@ -705,6 +794,13 @@ function populateLogUserDropdown() {
     systemUsers.forEach(u => {
         select.innerHTML += `<option value="${escapeHTML(u.username)}">${escapeHTML(u.name || u.full_name)} (${escapeHTML(u.username)})</option>`;
     });
+}
+
+// ⚡ ทำงานทันที 0ms เมื่อโหลดสคริปต์
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupCleanAuthUIAndFastInputs);
+} else {
+    setupCleanAuthUIAndFastInputs();
 }
 
 window.kickUserSession = kickUserSession;
