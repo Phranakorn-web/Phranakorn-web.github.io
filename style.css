@@ -1,5 +1,5 @@
 /* =========================================================================
-   --- WMS ENTERPRISE ENGINE: COMPLETE & FULL ULTIMATE STYLESHEET (v5.2.0) ---
+   --- WMS ENTERPRISE ENGINE: COMPLETE & FULL ULTIMATE STYLESHEET (v5.5.0) ---
    ========================================================================= */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Prompt:wght@300;400;500;600;700&family=Kanit:wght@300;400;500;600;700&display=swap');
@@ -958,6 +958,11 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
     font-size: 0.74rem;
 }
 
+.loc-badge-container.unselected {
+    background: #fee2e2 !important;
+    border-color: #fca5a5 !important;
+}
+
 .loc-segment {
     display: inline-flex;
     align-items: center;
@@ -968,6 +973,7 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
 .loc-bay { color: #0d9488; }
 .loc-shelf { color: #d97706; }
 .loc-slot { color: #10b981; font-weight: 800; }
+.loc-slot.full { color: #ef4444; font-weight: 800; }
 
 .loc-divider {
     font-size: 0.65rem;

@@ -1,11 +1,11 @@
 // =========================================================================
-// --- MODULE 3: FAST INBOUND DATABASE ENGINE (COMPLETE & REALTIME v5.3.0) ---
+// --- MODULE 3: FAST INBOUND DATABASE ENGINE (ENTERPRISE REALTIME v5.5.0) ---
 // =========================================================================
 
 let recentInboundList = [];
 let fastScanLock = false;
 
-// ⚡ Fast-Scan Memory Locking Sets (0ms Synchronous Lock)
+// ⚡ Fast-Scan Memory Locking Sets (0ms Synchronous Lock Engine)
 const pendingFastSnSet = new Set();
 const pendingFastLocationSet = new Set();
 
@@ -21,41 +21,86 @@ let scanSpeedTimer = null;
 // 🔍 Filter & Search state for Recent Inbound Feed
 let recentFeedSearchQuery = '';
 
-// 🔊 SOUND EFFECTS SYNTHESIZER (Web Audio API - No external assets required)
+// 🔊 SOUND EFFECTS SYNTHESIZER (Enterprise WMS Web Audio API Standard)
 function playAudioFeedback(type = 'success') {
     try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (!AudioCtx) return;
         const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
 
         if (type === 'success') {
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
-            osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.12); // A6
+            // High crisp dual beep (Classic Enterprise WMS Scanner Tone)
+            const osc1 = ctx.createOscillator();
+            const gain = ctx.createGain();
+            
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(1760, ctx.currentTime); // A6
+            osc1.frequency.setValueAtTime(2637, ctx.currentTime + 0.06); // E7
+            
+            gain.gain.setValueAtTime(0.12, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+            
+            osc1.connect(gain);
+            gain.connect(ctx.destination);
+            
+            osc1.start(ctx.currentTime);
+            osc1.stop(ctx.currentTime + 0.14);
+        } else if (type === 'duplicate') {
+            // Low double buzz for duplicate SN
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(220, ctx.currentTime);
+            osc.frequency.setValueAtTime(180, ctx.currentTime + 0.1);
+            
             gain.gain.setValueAtTime(0.15, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+            
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            
             osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.15);
+            osc.stop(ctx.currentTime + 0.25);
+        } else if (type === 'occupied') {
+            // Low warning pulse for occupied location slot
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(350, ctx.currentTime);
+            osc.frequency.linearRampToValueAtTime(150, ctx.currentTime + 0.3);
+            
+            gain.gain.setValueAtTime(0.18, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+            
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.3);
         } else {
+            // Standard General Error Buzz
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
             osc.type = 'sawtooth';
             osc.frequency.setValueAtTime(300, ctx.currentTime);
-            osc.frequency.linearRampToValueAtTime(150, ctx.currentTime + 0.2);
+            osc.frequency.linearRampToValueAtTime(120, ctx.currentTime + 0.22);
+            
             gain.gain.setValueAtTime(0.2, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
+            
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            
             osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.2);
+            osc.stop(ctx.currentTime + 0.22);
         }
     } catch (e) {}
 
-    // Haptic Feedback for Mobile Devices
     if (navigator.vibrate) {
-        if (type === 'success') navigator.vibrate(40);
-        else navigator.vibrate([80, 50, 80]);
+        if (type === 'success') navigator.vibrate([35, 30, 35]);
+        else if (type === 'duplicate') navigator.vibrate([70, 40, 70]);
+        else if (type === 'occupied') navigator.vibrate([100, 50, 100]);
+        else navigator.vibrate([120, 60, 120]);
     }
 }
 
@@ -90,12 +135,11 @@ function initFrontendSecurityGuards() {
     }, false);
 }
 
-// 🟢 ป๊อปอัปเด้งแจ้งเตือนสไตล์ iOS/macOS มุมขวาล่าง
-function showToast(message, isError = false, duration = 3000) {
+// 🟢 ป๊อปอัปเด้งแจ้งเตือนสไตล์ iOS/macOS Glassmorphic (มุมขวาล่าง)
+function showToast(message, isError = false, duration = 3200) {
     showToastPopup(message, isError, duration);
 }
 
-// 🟢 ระบบป๊อปอัปเด้งแจ้งเตือนสไตล์ iOS/macOS Glassmorphic (มุมขวาล่าง)
 function showToastPopup(message, isError = false, duration = 3200) {
     let overlay = document.getElementById('wmsToastPopupOverlay');
     if (!overlay) {
@@ -136,12 +180,12 @@ function showToastPopup(message, isError = false, duration = 3200) {
     }, duration);
 }
 
-// 🟢 แสดงข้อความป๊อปอัปสแกนลายนิ้วมือสำเร็จ (Biometric Toast Popup)
+// 🟢 แสดงข้อความป๊อปอัปสแกนลายนิ้วมือสำเร็จ
 function showBiometricSuccessToast(userName) {
     showToastPopup(`🔓 ยืนยันตัวตนสำเร็จ: ยินดีต้อนรับคุณ ${userName}`, false, 3500);
 }
 
-// 🟢 ระบบเปิด-ปิด เมนูบนโทรศัพท์มือถือ (Mobile Sidebar Drawer)
+// 🟢 ระบบเปิด-ปิด เมนูบนโทรศัพท์มือถือ
 function toggleMobileSidebar() {
     const sidebar = document.querySelector('.sidebar');
     let backdrop = document.getElementById('sidebarBackdrop');
@@ -201,6 +245,7 @@ function invalidateOccupiedLocationsCache() {
     }
 }
 
+// 🟢 UPDATED: คืนค่าและรีเซ็ตพิกัดเมื่อมีการลบสินค้า หรือปรับเปลี่ยนฐานข้อมูล Realtime
 function purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLocation = null) {
     if (!targetSn && !targetId && !targetLocation) return;
     
@@ -249,7 +294,7 @@ function purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLocati
     }
 
     invalidateOccupiedLocationsCache();
-    autoSelectNextAvailableSlotAfterInbound();
+    forceSyncAndSelectAvailableLocation();
     scheduleDebouncedFeedRender();
 }
 
@@ -257,10 +302,16 @@ function purgeDeletedSnFromMemory(targetSn, targetId) {
     purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId);
 }
 
+// 🟢 UPDATED: แยกส่วนประกอบของพิกัดจัดเก็บ (Aisle, Bay, Shelf, Slot) ไม่ปนกับคำว่าร้านหรือพิกัดลอย
 function parseLocComponentsInternal(locStr) {
     if (!locStr) return null;
     let raw = String(locStr).trim().toUpperCase();
-    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(raw)) {
+    
+    // กรองและล้างคำแปลกปลอม เช่น "ร้าน", "ร้านล็อก" ออกจากสตริง
+    raw = raw.replace(/ร้านล็อก|ร้าน/gi, '').trim();
+
+    const specialList = ['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'];
+    if (specialList.includes(raw)) {
         return { isSpecial: true, code: raw };
     }
 
@@ -332,7 +383,7 @@ function removeOccupiedLocFromSet(targetSet, loc) {
     }
 }
 
-// 🟢 UPDATED: ดึงชื่อ-นามสกุลจริงของผู้ใช้งานจากเซสชัน Supabase & Storage เพื่อบันทึกลงฐานข้อมูล 100%
+// 🟢 ดึงชื่อ-นามสกุลจริงของผู้ใช้งานจากเซสชัน Supabase & Storage เพื่อบันทึกลงฐานข้อมูล 100%
 function getCurrentUserFullName() {
     const profileElem = document.querySelector('.user-profile-badge') || 
                         document.querySelector('.user-name') || 
@@ -379,25 +430,6 @@ function getCurrentUserFullName() {
                 }
             }
         } catch (e) {}
-    }
-
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith('sb-') || key.includes('auth-token'))) {
-            try {
-                const raw = localStorage.getItem(key);
-                if (raw && raw.startsWith('{')) {
-                    const parsed = JSON.parse(raw);
-                    const userObj = parsed.user || parsed.current_user || parsed;
-                    if (userObj && typeof userObj === 'object') {
-                        const meta = userObj.user_metadata || userObj;
-                        const fn = meta.first_name || meta.firstname || meta.full_name || meta.name || '';
-                        const ln = meta.last_name || meta.lastname || '';
-                        if (fn || ln) return escapeHTML(`${fn} ${ln}`.trim());
-                    }
-                }
-            } catch (e) {}
-        }
     }
 
     return 'นคร จันทร์ท็อป';
@@ -472,7 +504,7 @@ function getAisleConfig(aisleName) {
 
 function getNormalizedLocKey(locStr) {
     if (!locStr) return '';
-    let clean = String(locStr).trim().toUpperCase();
+    let clean = String(locStr).trim().toUpperCase().replace(/ร้านล็อก|ร้าน/gi, '').trim();
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(clean)) return clean;
 
     const parsed = parseLocComponentsInternal(clean);
@@ -489,7 +521,7 @@ function normalizeLocationStandard(locStr) {
 
 function formatLocationSpaced(locStr) {
     if (!locStr) return '-';
-    const clean = String(locStr).trim().toUpperCase();
+    const clean = String(locStr).trim().toUpperCase().replace(/ร้านล็อก|ร้าน/gi, '').trim();
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(clean)) {
         return clean;
     }
@@ -498,7 +530,7 @@ function formatLocationSpaced(locStr) {
     if (p && !p.isSpecial) {
         const isFull = clean.endsWith('-FULL') || clean.includes('FULL');
         const slotStr = isFull ? 'FULL' : p.slot;
-        return `${p.aisle} • ล็อก ${p.bay} • ชั้น ${p.shelf} • ช่อง ${slotStr}`;
+        return `แถว ${p.aisle} • ล็อก ${p.bay} • ชั้น ${p.shelf} • ช่อง ${slotStr}`;
     }
 
     return clean.replace(/[\-_]/g, ' • ');
@@ -508,13 +540,13 @@ function formatLocationCode(locStr) {
     return formatLocationSpaced(locStr);
 }
 
-// 🟢 UPDATED: จัดรูปแบบพิกัดรับเข้าจริงให้แสดงครบถ้วน ไม่ตัดตัวหนังสือ 100%
+// 🟢 UPDATED: แยกชื่อพิกัด/แถวออกจาก ล็อก/ชั้น/ช่อง ป้องกันการรวมร่างแสดงผลผิดพลาด 100%
 function formatLocationBadgeHTML(locStr) {
     if (!locStr) return `<span class="loc-badge-container compact"><span class="loc-segment">N/A</span></span>`;
-    const clean = String(locStr).trim().toUpperCase();
+    const clean = String(locStr).trim().toUpperCase().replace(/ร้านล็อก|ร้าน/gi, '').trim();
     
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(clean)) {
-        return `<span class="loc-badge-container special compact"><span class="loc-segment loc-aisle">📍 ${escapeHTML(clean)}</span></span>`;
+        return `<span class="loc-badge-container special compact"><span class="loc-segment loc-aisle">📍 โซนพิเศษ: ${escapeHTML(clean)}</span></span>`;
     }
 
     const p = parseLocComponentsInternal(clean);
@@ -524,7 +556,7 @@ function formatLocationBadgeHTML(locStr) {
 
         return `
             <span class="loc-badge-container compact ${isFull ? 'full-slot' : ''}" title="${escapeHTML(clean)}">
-                <span class="loc-segment loc-aisle">${escapeHTML(p.aisle)}</span>
+                <span class="loc-segment loc-aisle"><i class="fa-solid fa-layer-group" style="font-size:0.7rem; margin-right:3px;"></i> แถว ${escapeHTML(p.aisle)}</span>
                 <span class="loc-divider">•</span>
                 <span class="loc-segment loc-bay">ล็อก ${escapeHTML(p.bay)}</span>
                 <span class="loc-divider">•</span>
@@ -865,11 +897,12 @@ function populateInboundSlotDropdown(aisle, bay, shelf) {
     return autoSelectedSlot;
 }
 
+// 🟢 UPDATED: บังคับเลือกพิกัดจากฐานข้อมูลจริง ลบข้อผิดพลาด "ร้านล็อก" ทิ้ง 100%
 function populateInboundLocationDropdownsStrict(aisleName, keepBay = null) {
     const aisleSelect = document.getElementById('inboundAisleSelect');
     
     let aisle = aisleName || (aisleSelect ? aisleSelect.value : '');
-    aisle = String(aisle || 'A').trim().toUpperCase();
+    aisle = String(aisle || 'A').trim().toUpperCase().replace(/ร้านล็อก|ร้าน/gi, '').trim();
 
     if (aisleSelect && aisleSelect.value !== aisle) {
         aisleSelect.value = aisle;
@@ -919,7 +952,6 @@ function populateInboundLocationDropdownsStrict(aisleName, keepBay = null) {
     let resBay = calculateNextAvailableSlotInBayStrictAisle(aisle, targetBayStr);
 
     if (resBay.isFull) {
-        let foundInSameAisle = false;
         for (let bOffset = 1; bOffset < totalBays; bOffset++) {
             let testBayNum = ((targetBayNum - 1 + bOffset) % totalBays) + 1;
             let testBayStr = String(testBayNum).padStart(2, '0');
@@ -928,7 +960,6 @@ function populateInboundLocationDropdownsStrict(aisleName, keepBay = null) {
             if (!testRes.isFull) {
                 targetBayStr = testBayStr;
                 resBay = testRes;
-                foundInSameAisle = true;
                 break;
             }
         }
@@ -1017,7 +1048,7 @@ function getSelectedLocationFromDropdowns() {
     const shelfSelect = document.getElementById('inboundShelfSelect');
     const slotSelect = document.getElementById('inboundSlotSelect');
 
-    const aisle = (aisleSelect ? aisleSelect.value : 'A').trim().toUpperCase();
+    const aisle = (aisleSelect ? aisleSelect.value : 'A').trim().toUpperCase().replace(/ร้านล็อก|ร้าน/gi, '').trim();
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(aisle)) {
         return aisle;
     }
@@ -1055,16 +1086,13 @@ function updateInboundLocationPreviewFromDropdowns() {
 
     const baySelect = document.getElementById('inboundBaySelect');
     const shelfSelect = document.getElementById('inboundShelfSelect');
-    const slotSelect = document.getElementById('inboundSlotSelect');
 
     const bay = baySelect ? baySelect.value : '01';
     const shelf = shelfSelect ? shelfSelect.value : '01';
-    const slot = slotSelect ? slotSelect.value : '01';
 
     const details = calculateAisleCapacityAndNextSlot(aisle);
     details.bay = parseInt(bay, 10);
     details.shelf = parseInt(shelf, 10);
-    details.slot = parseInt(slot, 10);
     details.location = dbLocKey;
 
     renderAisleSlotBreakdownUI(details);
@@ -1164,10 +1192,10 @@ function renderAisleSlotBreakdownUI(details) {
 
 function triggerAutoFindNextSlot() {
     invalidateOccupiedLocationsCache();
-    autoSelectNextAvailableSlotAfterInbound();
+    forceSyncAndSelectAvailableLocation();
 }
 
-function autoSelectNextAvailableSlotAfterInbound() {
+function forceSyncAndSelectAvailableLocation() {
     const aisleSelect = document.getElementById('inboundAisleSelect');
     const baySelect = document.getElementById('inboundBaySelect');
 
@@ -1177,8 +1205,12 @@ function autoSelectNextAvailableSlotAfterInbound() {
     populateInboundLocationDropdownsStrict(currentAisle, currentBay);
 }
 
+function autoSelectNextAvailableSlotAfterInbound() {
+    forceSyncAndSelectAvailableLocation();
+}
+
 // ⚡ ---------------------------------------------------------------------
-// 🚀 HIGH-SPEED FAST SCAN ENGINE (FIFO QUEUE & AUDIO FEEDBACK)
+// 🚀 HIGH-SPEED FAST SCAN ENGINE (STRICT SINGLE SN CHECK & AUDIO FEEDBACK)
 // ------------------------------------------------------------------------
 function triggerScanInputFlash(status = 'success') {
     const snInput = document.getElementById('inboundSn');
@@ -1187,7 +1219,6 @@ function triggerScanInputFlash(status = 'success') {
     void snInput.offsetWidth;
     snInput.classList.add(status === 'success' ? 'scan-flash-success' : 'scan-flash-error');
     
-    // Play Audio Feedback
     playAudioFeedback(status);
 
     setTimeout(() => {
@@ -1265,22 +1296,45 @@ async function processScanProcessingQueue() {
         const { sn, category, name, meterVal, location } = item;
 
         let dbLocation = location || getSelectedLocationFromDropdowns();
-
         const snUpper = sn.toUpperCase();
+
+        // 🟢 STRICT 1: บล็อกการสแกน S/N ซ้ำเด็ดขาดในทุกกรณี
         const isDuplicateSn = pendingFastSnSet.has(snUpper) ||
-                              (typeof globalInventoryData !== 'undefined' && globalInventoryData.some(i => i && String(i.sn).toUpperCase() === snUpper && i.status !== 'OUT' && !i.is_deleted));
+                              (typeof globalInventoryData !== 'undefined' && globalInventoryData.some(i => i && String(i.sn).toUpperCase() === snUpper && i.status !== 'OUT' && !i.is_deleted)) ||
+                              (typeof recentInboundList !== 'undefined' && recentInboundList.some(r => r && String(r.sn).toUpperCase() === snUpper));
 
         if (isDuplicateSn) {
-            triggerScanInputFlash('error');
-            showToast(`⚠️ ซีเรียล S/N: ${sn} นี้มีอยู่ในระบบเรียบร้อยแล้ว`, true);
+            triggerScanInputFlash('duplicate');
+            showToast(`⚠️ ซีเรียล S/N: ${sn} มีอยู่ในคลังสินค้าเรียบร้อยแล้ว ห้ามสแกนซ้ำเด็ดขาด!`, true);
             ensureSnInputFocus(true);
             continue;
+        }
+
+        // 🟢 STRICT 2: 1 SN ต่อ 1 พิกัดจัดเก็บเท่านั้น (ห้ามยิงซ้ำลงพิกัดที่มีสินค้าตั้งอยู่แล้ว)
+        const specialLocations = ['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'];
+        const isSpecialZone = specialLocations.includes(dbLocation.toUpperCase());
+
+        if (!isSpecialZone) {
+            const occupiedSet = getAllOccupiedLocationsSet();
+            const normLocKey = getNormalizedLocKey(dbLocation);
+            const isLocOccupied = occupiedSet.has(dbLocation) || (normLocKey && occupiedSet.has(normLocKey));
+
+            if (isLocOccupied) {
+                const occupyingItem = getOccupyingSnDetails(dbLocation);
+                const occupyingSn = occupyingItem ? occupyingItem.sn : 'ไม่ทราบ S/N';
+
+                triggerScanInputFlash('occupied');
+                showToast(`⚠️ พิกัด ${formatLocationSpaced(dbLocation)} มีสินค้า (S/N: ${occupyingSn}) จัดเก็บอยู่แล้ว (ระบบกำหนด 1 SN ต่อ 1 พิกัดเท่านั้น)`, true);
+
+                forceSyncAndSelectAvailableLocation();
+                ensureSnInputFocus(true);
+                continue;
+            }
         }
 
         pendingFastSnSet.add(snUpper);
         addOccupiedLocToSet(pendingFastLocationSet, dbLocation);
 
-        // 🟢 UPDATED: บันทึกชื่อ-นามสกุลจริงของผู้บันทึกเข้า Supabase DB ครบถ้วน 100%
         const activeUserFullName = getCurrentUserFullName();
         const nowISO = new Date().toISOString();
         const currentTimeStr = new Date().toLocaleTimeString('th-TH');
@@ -1314,7 +1368,7 @@ async function processScanProcessingQueue() {
         });
         if (recentInboundList.length > 100) recentInboundList.length = 100;
 
-        autoSelectNextAvailableSlotAfterInbound();
+        forceSyncAndSelectAvailableLocation();
         triggerScanInputFlash('success');
         showToast(`✅ สแกนรับเข้าสำเร็จ: S/N ${sn} -> พิกัด ${formatLocationSpaced(dbLocation)} (${activeUserFullName})`);
         scheduleDebouncedFeedRender();
@@ -1389,7 +1443,6 @@ async function loadRecentInboundFeedFromDB() {
     } catch (e) {}
 }
 
-// 🟢 UPDATED: จัดการกล่องแสดงผลการเชื่อมต่อ DB มุมล่างซ้ายมือ ตัดลงบรรทัดที่ 2 สวยงาม ไม่ล้นกรอบ
 function updateMasterDbCountBadge() {
     const badgeElem = document.getElementById('masterDbCountBadge') || document.getElementById('sidebarDbStatusBox');
     if (!badgeElem) return;
@@ -1543,7 +1596,7 @@ async function autoRefreshInboundDatabaseAndLocations() {
         try { await loadRecentInboundFeedFromDB(); } catch(e) {}
     }
 
-    autoSelectNextAvailableSlotAfterInbound();
+    forceSyncAndSelectAvailableLocation();
     scheduleDebouncedFeedRender();
     ensureSnInputFocus();
 }
@@ -1698,17 +1751,14 @@ function injectModernScanUIStyles() {
     document.head.appendChild(styleElem);
 }
 
-// 🟢 NEW FEATURE: ค้นหาและกรองประวัติการรับเข้าใน Feed สด Realtime
 function onRecentFeedSearch(queryText) {
     recentFeedSearchQuery = (queryText || '').toLowerCase().trim();
     renderLiveInboundFeed();
 }
 
-// 🟢 UPDATED REALTIME PRINT TRIGGER: ดีดเปิดศูนย์พิมพ์บาร์โค้ดทันที 100% เมื่อกดสั่งพิมพ์ S/N จากหน้ารับเข้า
 function triggerReprintStickerFromFeed(sn, name = '', category = '', location = '') {
     if (!sn) return;
 
-    // 1. ลองค้นหาในศูนย์พิมพ์บาร์โค้ดหลัก
     if (typeof window.openPrintBarcodeModal === 'function') {
         window.openPrintBarcodeModal('SINGLE', sn);
         showToast(`🖨️ ดีดไปที่ศูนย์พิมพ์บาร์โค้ดเรียบร้อย: S/N ${sn}`, false);
@@ -1737,12 +1787,11 @@ function triggerReprintStickerFromFeed(sn, name = '', category = '', location = 
         return;
     }
 
-    // Fallback: คัดลอก S/N แจ้งเตือน
     copyToClipboard(sn);
-    showToast(`📋 คัดลอก S/N ${sn} สำเร็จแล้ว (กำลังรอโหลดโมดูลการพิมพ์)`, false);
+    showToast(`📋 คัดลอก S/N ${sn} สำเร็จแล้ว`, false);
 }
 
-// 🟢 UPDATED: จัดการเลย์เอาต์การ์ดประวัติรับเข้าล่าสุด แสดงชื่อผู้รับสินค้า และพิกัดรับเข้าจริงแบบเต็ม ไม่ตัดข้อความ 100% (REALTIME UPDATE)
+// 🟢 REALTIME FEED RENDERER: แยกพิกัด ล็อก ชั้น ช่อง ออกเป็นชิ้นส่วนชัดเจน 100%
 function renderLiveInboundFeed() {
     const container = document.getElementById('liveInboundFeedContainer');
     if (!container) return;
@@ -1896,7 +1945,6 @@ function initInboundEventListeners() {
     initFrontendSecurityGuards();
     checkAndHideLoginOverlay();
 
-    // ดึงประวัติรับเข้าจากฐานข้อมูล Supabase เมื่อเริ่มโหลดหน้าจอ
     loadRecentInboundFeedFromDB();
 
     document.addEventListener('biometricLoginSuccess', function(e) {
@@ -1988,7 +2036,7 @@ function initInboundEventListeners() {
         }
     });
 
-    autoSelectNextAvailableSlotAfterInbound();
+    forceSyncAndSelectAvailableLocation();
     initMasterProductsRealtime();
     initWarehouseItemsRealtime();
     initCrossTabBroadcastListener();
@@ -2024,6 +2072,7 @@ if (typeof window !== 'undefined') {
     window.getSelectedLocationFromDropdowns = getSelectedLocationFromDropdowns;
     window.renderAisleSlotBreakdownUI = renderAisleSlotBreakdownUI;
     window.autoSelectNextAvailableSlotAfterInbound = autoSelectNextAvailableSlotAfterInbound;
+    window.forceSyncAndSelectAvailableLocation = forceSyncAndSelectAvailableLocation;
     window.triggerAutoFindNextSlot = triggerAutoFindNextSlot;
     window.handleInboundSubmit = handleInboundSubmit;
     window.processScanProcessingQueue = processScanProcessingQueue;
