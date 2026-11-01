@@ -14,6 +14,8 @@
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
     <!-- SheetJS / XLSX Export -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- HTML5 QRCode Scanner Library for Mobile Camera -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 
     <!-- 🟢 2. CSS Stylesheet หลัก -->
     <link rel="stylesheet" href="style.css">
@@ -281,44 +283,55 @@
                                 </div>
                             </div>
 
-                            <div class="form-grid">
-                                <div class="form-group">
-                                    <label for="inboundMeter"><i class="fa-solid fa-gauge"></i> เลขมิเตอร์เริ่มต้น:</label>
-                                    <input type="number" id="inboundMeter" class="form-control mono font-bold" value="0">
-                                </div>
-                                <div class="form-group">
-                                    <label for="inboundSn"><i class="fa-solid fa-barcode"></i> หมายเลขซีเรียล (S/N):</label>
-                                    <div style="display:flex; gap:6px;">
-                                        <input type="text" id="inboundSn" class="form-control mono font-bold" placeholder="สแกน หรือ พิมพ์ S/N..." required>
-                                        <button type="button" class="btn btn-sm btn-secondary" onclick="generateAutoSN()" title="สุ่ม S/N"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-                                    </div>
-                                </div>
-                            </div>
+<div class="form-grid">
+    <div class="form-group">
+        <label for="inboundMeter"><i class="fa-solid fa-gauge"></i> เลขมิเตอร์เริ่มต้น:</label>
+        <input type="number" id="inboundMeter" class="form-control mono font-bold" value="0">
+    </div>
+    <div class="form-group">
+        <label for="inboundSn"><i class="fa-solid fa-barcode"></i> หมายเลขซีเรียล (S/N):</label>
+        <div style="display:flex; gap:6px;">
+            <input type="text" id="inboundSn" class="form-control mono font-bold" placeholder="สแกน หรือ พิมพ์ S/N..." required>
+            <button type="button" class="btn btn-sm btn-primary" onclick="triggerMobileCameraScan()" title="สแกนกล้องมือถือ"><i class="fa-solid fa-camera"></i></button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="generateAutoSN()" title="สุ่ม S/N"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+        </div>
+    </div>
+</div>
 
                             <div class="card-title" style="font-size:0.95rem; margin-top:10px; margin-bottom:8px;"><i class="fa-solid fa-location-dot"></i> กำหนดพิกัดจัดเก็บสินค้า</div>
                             <div class="form-grid">
                                 <div class="form-group">
                                     <label for="inboundAisleSelect">แถว (Aisle):</label>
-                                    <select id="inboundAisleSelect" class="form-select" onchange="onInboundAisleOrBayChange()"></select>
+                                    <select id="inboundAisleSelect" class="form-select" onchange="onInboundAisleChange(this.value)">
+                                        <option value="" disabled selected>-- โปรดเลือกแถวพิกัดจัดเก็บ --</option>
+                                    </select>
                                 </div>
                                 <div class="form-group">
                                     <label for="inboundBaySelect">ล็อก (Bay):</label>
-                                    <select id="inboundBaySelect" class="form-select" onchange="autoSelectAvailableSlot()"></select>
+                                    <select id="inboundBaySelect" class="form-select" onchange="onInboundBayChange(this.value)" disabled>
+                                        <option value="" disabled selected>-- เลือกแถวก่อน --</option>
+                                    </select>
                                 </div>
                                 <div class="form-group">
                                     <label for="inboundShelfSelect">ชั้น (Shelf):</label>
-                                    <select id="inboundShelfSelect" class="form-select" onchange="updateInboundLocationPreview()"></select>
+                                    <select id="inboundShelfSelect" class="form-select" onchange="onInboundShelfChange(this.value)" disabled>
+                                        <option value="" disabled selected>-- เลือกแถวก่อน --</option>
+                                    </select>
                                 </div>
                                 <div class="form-group">
                                     <label for="inboundSlotSelect">ช่อง (Slot):</label>
-                                    <select id="inboundSlotSelect" class="form-select" onchange="updateInboundLocationPreview()"></select>
+                                    <select id="inboundSlotSelect" class="form-select" onchange="onInboundSlotChange(this.value)" disabled>
+                                        <option value="" disabled selected>-- เลือกแถวก่อน --</option>
+                                    </select>
                                 </div>
                             </div>
 
                             <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-subtle); padding:10px 14px; border-radius:10px; margin-top:12px;">
                                 <div>
                                     <span style="font-size:0.85rem; color:var(--text-sub);">พิกัดจัดเก็บที่เลือก: </span>
-                                    <span id="inboundLocationPreview" class="badge-location mono" style="font-size:1rem;">A-01-1-01</span>
+                                    <span id="inboundLocationPreview" class="badge-location mono" style="font-size:1rem;">
+                                        <span class="loc-badge-container compact unselected"><i class="fa-solid fa-hand-pointer" style="margin-right:4px;"></i> ⚠️ โปรดเลือกแถวพิกัดจัดเก็บก่อนสแกน</span>
+                                    </span>
                                 </div>
                                 <span id="bayInboundCountBadge" class="mono font-bold" style="font-size:0.8rem; color:var(--text-muted);">รับแล้วในล็อกนี้: 0 เครื่อง</span>
                             </div>
