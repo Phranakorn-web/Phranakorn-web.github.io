@@ -1,5 +1,5 @@
 // =========================================================================
-// --- MODULE: NAVIGATION & ROUTER ENGINE (ROLE-BASED ACCESS CONTROL) ---
+// --- MODULE: NAVIGATION & ROUTER ENGINE (REAL-TIME AUTO-REFRESH) ---
 // =========================================================================
 
 // 🟢 ฟังก์ชันดึง View ปัจจุบันที่ถูกต้องที่สุด (เรียงลำดับ: Hash -> localStorage -> Default)
@@ -29,7 +29,7 @@ function updateActiveMenuHighlight(targetView) {
         }
     });
 
-    // อัปเดตฝั่ง Dynamic Sidebar List (ถ้ามี)
+    // อัปเดตฝั่ง Dynamic Sidebar List
     const menuContainers = document.querySelectorAll('#sidebarMenuList, .sidebar-menu, .sidebar-nav');
     menuContainers.forEach(container => {
         const targets = container.querySelectorAll('button, a, .menu-item');
@@ -60,6 +60,11 @@ function switchView(viewId) {
     }
 
     executeSwitchView(targetView);
+
+    // ปิด Mobile Sidebar อัตโนมัติเมื่อเลือกเมนูบนมือถือ
+    if (window.innerWidth <= 768) {
+        closeMobileSidebar();
+    }
 }
 
 async function executeSwitchView(viewId) {
@@ -79,11 +84,19 @@ async function executeSwitchView(viewId) {
         targetView = 'view-inventory';
     }
 
-    // 🟢 ตรวจสอบสิทธิ์ Admin: ถ้าไม่ใช่ Admin แต่พยายามเข้าหน้า Admin ให้ส่งกลับหน้าสต็อก
-    const isAdmin = (typeof currentUser !== 'undefined' && currentUser && currentUser.role === 'admin');
+    // 🟢 ตรวจสอบสิทธิ์ผู้ใช้จาก Cache Session เพื่อป้องกันการดีดสลับหน้าขณะรอ DB
+    let activeUser = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
+    if (!activeUser) {
+        try {
+            const sessionStr = sessionStorage.getItem('WMS_CURRENT_USER') || localStorage.getItem('WMS_CURRENT_USER');
+            if (sessionStr) activeUser = JSON.parse(sessionStr);
+        } catch (e) {}
+    }
+
+    const isAdmin = activeUser && activeUser.role === 'admin';
     const adminOnlyViews = ['view-approvals', 'view-activities', 'view-settings'];
 
-    if (adminOnlyViews.includes(targetView) && !isAdmin) {
+    if (adminOnlyViews.includes(targetView) && activeUser && !isAdmin) {
         if (typeof showToast === 'function') {
             showToast("⚠️ คุณไม่มีสิทธิ์เข้าถึงหน้านี้ (เฉพาะ Admin เท่านั้น)", true);
         }
@@ -92,7 +105,7 @@ async function executeSwitchView(viewId) {
         window.history.replaceState(null, '', window.location.pathname + '#view-inventory');
     }
 
-    // 🟢 1. สลับการแสดงผล Section ซ่อนหน้าอื่นทั้งหมดทันที
+    // 🟢 1. สลับการแสดงผล Section แสดงผลทันที ไม่แสดงหน้าขาว
     document.querySelectorAll('.view-section').forEach(sec => {
         if (sec.id === targetView) {
             sec.classList.add('active');
@@ -111,7 +124,7 @@ async function executeSwitchView(viewId) {
     // 🟢 3. อัปเดต Header Title
     const pageTitleMap = {
         'view-inventory': { title: 'เช็คสต็อกคลังสินค้า', icon: 'fa-boxes-stacked' },
-        'view-inbound': { title: 'รับสินค้าเข้าคลัง (Fast)', icon: 'fa-arrow-down-to-bracket' },
+        'view-inbound': { title: 'รับสินค้าเข้าคลัง (Fast)', icon: 'fa-arrow-right-to-bracket' },
         'view-outbound': { title: 'จ่ายสินค้าออกจากคลัง (Outbound Work Order)', icon: 'fa-truck-arrow-right' },
         'view-locations': { title: 'ผังตำแหน่งคลังสินค้า (Drill-Down)', icon: 'fa-map-location-dot' },
         'view-approvals': { title: 'ศูนย์อนุมัติคำขอ (Approvals)', icon: 'fa-clipboard-check' },
@@ -125,7 +138,7 @@ async function executeSwitchView(viewId) {
         headerTitleElem.innerHTML = `<i class="fa-solid ${info.icon}" style="color:var(--primary);"></i> ${info.title}`;
     }
 
-    // 🟢 4. เรียกฟังก์ชันโหลดข้อมูลเฉพาะหน้านั้นๆ
+    // 🟢 4. โหลดข้อมูลเฉพาะหน้าแบบ Instant Render
     if (targetView === 'view-inventory') {
         if (typeof filterInventoryData === 'function') filterInventoryData();
         if (typeof updateKPIs === 'function') updateKPIs();
@@ -145,7 +158,14 @@ async function executeSwitchView(viewId) {
 }
 
 function renderSidebarMenu() {
-    const isAdmin = (typeof currentUser !== 'undefined' && currentUser && currentUser.role === 'admin');
+    let activeUser = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
+    if (!activeUser) {
+        try {
+            const sessionStr = sessionStorage.getItem('WMS_CURRENT_USER') || localStorage.getItem('WMS_CURRENT_USER');
+            if (sessionStr) activeUser = JSON.parse(sessionStr);
+        } catch (e) {}
+    }
+    const isAdmin = activeUser && activeUser.role === 'admin';
 
     const adminCategoryElem = document.getElementById('cat-admin');
     if (adminCategoryElem) {
@@ -162,6 +182,29 @@ function navigateToApprovalCenter() {
     
     switchView('view-approvals');
     if (typeof loadPendingApprovalsFromDB === 'function') loadPendingApprovalsFromDB();
+}
+
+// 📱 MOBILE SIDEBAR CONTROLLER
+function toggleMobileSidebar() {
+    const sidebar = document.getElementById('menu');
+    const overlay = document.getElementById('sidebarOverlay');
+    if (sidebar) sidebar.classList.toggle('mobile-open');
+    if (overlay) overlay.classList.toggle('active');
+}
+
+function closeMobileSidebar() {
+    const sidebar = document.getElementById('menu');
+    const overlay = document.getElementById('sidebarOverlay');
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    if (overlay) overlay.classList.remove('active');
+}
+
+// 🟢 AUTO REAL-TIME REFRESH HELPER: รีเฟรชหน้าและตารางข้อมูลอัตโนมัติทันทีทุกครั้งที่มี Action
+function autoRefreshActiveView() {
+    const activeView = getCurrentActiveView();
+    if (typeof filterInventoryData === 'function') filterInventoryData();
+    if (typeof updateKPIs === 'function') updateKPIs();
+    if (typeof executeSwitchView === 'function') executeSwitchView(activeView);
 }
 
 function initNavigationEngine() {
@@ -183,6 +226,10 @@ function initNavigationEngine() {
     window.addEventListener('hashchange', () => {
         executeSwitchView(getCurrentActiveView());
     });
+
+    // 🟢 สลับหน้าทันทีตั้งแต่สคริปต์ทำงาน เพื่อป้องกันหน้าจอขาวช่วงแรก
+    const initialView = getCurrentActiveView();
+    executeSwitchView(initialView);
 }
 
 window.switchView = switchView;
@@ -191,5 +238,8 @@ window.updateActiveMenuHighlight = updateActiveMenuHighlight;
 window.renderSidebarMenu = renderSidebarMenu;
 window.navigateToApprovalCenter = navigateToApprovalCenter;
 window.getCurrentActiveView = getCurrentActiveView;
+window.toggleMobileSidebar = toggleMobileSidebar;
+window.closeMobileSidebar = closeMobileSidebar;
+window.autoRefreshActiveView = autoRefreshActiveView;
 
 document.addEventListener('DOMContentLoaded', initNavigationEngine);

@@ -330,7 +330,7 @@ function updateInventoryTableHeader() {
                 <th style="padding: 12px 14px; min-width: 220px; text-align: left;">รายละเอียด (ยี่ห้อ / รุ่น)</th>
                 <th style="padding: 12px 14px; text-align: right; min-width: 110px;">คงเหลือรวม</th>
                 <th style="padding: 12px 14px; text-align: center; min-width: 160px;">พิกัดและล็อกจัดเก็บจริง</th>
-                <th style="padding: 12px 14px; text-align: center; width: 50px;"></th>
+                <th style="padding: 12px 14px; text-align: center; width: 60px;">ดูรายการ</th>
             </tr>
         `;
     } else {
@@ -345,7 +345,7 @@ function updateInventoryTableHeader() {
                 <th style="min-width:160px; text-align:center; padding:12px 10px;">หมายเลขซีเรียล (S/N)</th>
                 <th style="min-width:140px; text-align:center; padding:12px 10px;">พิกัดจัดเก็บ</th>
                 <th style="min-width:70px; text-align:center; padding:12px 8px;">จำนวน</th>
-                <th style="min-width:150px; text-align:center; padding:12px 10px;">ผู้รับสินค้าเข้า (User)</th>
+                <th style="min-width:160px; text-align:center; padding:12px 10px;">ผู้รับสินค้าเข้า (User)</th>
                 <th style="min-width:140px; text-align:center; padding:12px 10px;">วันที่รับเข้า</th>
                 <th style="width:55px; text-align:center; padding:12px 4px;">พิมพ์</th>
                 <th style="width:55px; text-align:center; padding:12px 4px;">แก้ไข</th>
@@ -471,6 +471,8 @@ function renderInventoryTable(items) {
 
             const tr = document.createElement('tr');
             tr.style.cssText = "border-bottom: 1px solid #e2e8f0; transition: all 0.15s ease; cursor: pointer;";
+            
+            // 🟢 เมื่อคลิกทั้งแถว จะเปิด Modal แสดงรายการ S/N ย่อย
             tr.onclick = () => openStockDetailModal(grp.groupKey);
             tr.onmouseover = function() { this.style.background = '#f8fafc'; };
             tr.onmouseout = function() { this.style.background = 'transparent'; };
@@ -517,8 +519,10 @@ function renderInventoryTable(items) {
                     </span>
                 </td>
 
-                <td style="padding: 10px 14px; text-align: center; vertical-align: middle; color: #64748b;">
-                    <i class="fa-solid fa-chevron-right" style="font-size: 0.85rem;"></i>
+                <td style="padding: 10px 14px; text-align: center; vertical-align: middle; color: #2563eb;" title="กดเพื่อดูซีเรียลในรุ่นนี้">
+                    <button class="btn btn-sm btn-secondary" style="padding: 6px 10px; border-radius: 8px; border: 1px solid #cbd5e1; background: #ffffff;">
+                        <i class="fa-solid fa-chevron-right" style="font-size: 0.9rem; color: #2563eb;"></i>
+                    </button>
                 </td>
             `;
             frag.appendChild(tr);
@@ -571,7 +575,6 @@ function renderInventoryTable(items) {
                         <code class="mono font-bold" style="font-size:0.85rem; background:#f8fafc; padding:2px 6px; border-radius:4px; border:1px solid #cbd5e1; color:#0f172a;">${escapeHTML(item.sn)}</code>
                         <button class="btn btn-sm btn-secondary" style="padding:2px 5px; font-size:0.68rem; border-radius:4px;" onclick="copyTextToClipboard('${escapeHTML(item.sn)}', 'S/N')" title="คัดลอก S/N"><i class="fa-solid fa-copy"></i></button>
                     </div>
-                    ${item._pending ? '<div style="text-align:center; margin-top:2px;"><span class="badge-action delete" style="font-size:0.65rem; display:inline-block;"><i class="fa-solid fa-clock"></i> รอบันทึก DB</span></div>' : ''}
                 </td>
                 <td style="text-align:center; vertical-align:middle; padding:8px 10px;">
                     <div style="display:flex; align-items:center; justify-content:center;">
@@ -581,13 +584,16 @@ function renderInventoryTable(items) {
                     </div>
                 </td>
                 <td style="text-align:center; font-weight:700; vertical-align:middle; padding:8px 6px;" class="mono">${item.qty ?? 1}</td>
+                
+                <!-- 🟢 แสดงชื่อผู้รับสินค้าเข้าตรงกันกับตอนรับเข้า 100% -->
                 <td style="text-align:center; vertical-align:middle; padding:8px 10px;">
                     <div style="display:flex; align-items:center; justify-content:center;">
-                        <span style="font-size:0.78rem; font-weight:600; color:#0f172a; display:inline-flex; align-items:center; justify-content:center; gap:4px; background:#f8fafc; padding:3px 8px; border-radius:4px; border:1px solid #cbd5e1; white-space:nowrap;" title="ชื่อผู้รับเข้า: ${escapeHTML(receiverFullName)}">
-                            <i class="fa-solid fa-user-check" style="color:#10b981; font-size:0.7rem;"></i> ${escapeHTML(receiverFullName)}
+                        <span style="font-size:0.78rem; font-weight:700; color:#0f172a; display:inline-flex; align-items:center; justify-content:center; gap:5px; background:#eff6ff; padding:3px 10px; border-radius:6px; border:1px solid #bfdbfe; white-space:nowrap;" title="ผู้รับสินค้าเข้า: ${escapeHTML(receiverFullName)}">
+                            <i class="fa-solid fa-user-check" style="color:#2563eb; font-size:0.75rem;"></i> ${escapeHTML(receiverFullName)}
                         </span>
                     </div>
                 </td>
+
                 <td style="text-align:center; font-size:0.75rem; color:#64748b; vertical-align:middle; padding:8px 10px;">${item.created_at ? new Date(item.created_at).toLocaleString('th-TH') : '-'}</td>
                 <td style="text-align:center; vertical-align:middle; padding:8px 4px;">
                     <button class="btn btn-sm btn-primary" onclick="openPrintBarcodeModal('SINGLE', '${escapeHTML(item.sn)}')" style="padding:3px 8px; font-size:0.75rem;" title="พิมพ์บาร์โค้ด"><i class="fa-solid fa-barcode"></i> พิมพ์</button>
@@ -599,7 +605,7 @@ function renderInventoryTable(items) {
                     <button class="btn btn-sm btn-secondary" onclick="requestRelocateModal('${safeId}', '${safeSn}', '${escapeHTML(item.name)}', '${escapeHTML(item.location)}')" style="padding:3px 8px; font-size:0.75rem;" title="ย้ายพิกัด"><i class="fa-solid fa-right-left"></i> ย้าย</button>
                 </td>
                 <td style="text-align:center; vertical-align:middle; padding:8px 4px;">
-                    <button class="btn btn-sm btn-danger" onclick="requestDeleteModal('SINGLE', '${safeSn}', '${safeId}', event)" style="padding:4px 10px; font-size:0.75rem; background:#dc2626; border-color:#dc2626; font-weight:700; border-radius:6px; transition:transform 0.1s ease;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'" title="ลบรายการนี้ออกจากฐานข้อมูลทันที">
+                    <button class="btn btn-sm btn-danger" onclick="requestDeleteModal('SINGLE', '${safeSn}', '${safeId}', event)" style="padding:4px 10px; font-size:0.75rem; background:#dc2626; border-color:#dc2626; font-weight:700; border-radius:6px;" title="ลบรายการนี้ออกจากฐานข้อมูลทันที">
                         <i class="fa-solid fa-trash-can"></i> ลบ
                     </button>
                 </td>

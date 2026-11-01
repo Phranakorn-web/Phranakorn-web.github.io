@@ -3,7 +3,7 @@
 // =========================================================================
 
 // -------------------------------------------------------------------------
-// 📊 สรุปสถิติ KPI คลังสินค้า
+// 📊 สรุปสถิติ KPI คลังสินค้า (Real-time SKU & Inventory Sync)
 // -------------------------------------------------------------------------
 function updateKPIs() {
     const totalCount = globalInventoryData.length;
@@ -11,10 +11,15 @@ function updateKPIs() {
     const kpiTotal = document.getElementById('kpiTotalItems');
     if (kpiTotal) kpiTotal.textContent = totalCount.toLocaleString();
 
-    const uniqueInventorySkus = new Set(globalInventoryData.map(i => (i.category || i.sku || '').trim()).filter(Boolean)).size;
+    const uniqueInventorySkus = new Set(
+        globalInventoryData.map(i => (i.category || i.sku || '').trim()).filter(Boolean)
+    ).size;
+    
     const totalMasterSkus = globalMasterProducts.length;
 
-    const displaySkuText = totalMasterSkus > 0 ? `${uniqueInventorySkus.toLocaleString()} / ${totalMasterSkus.toLocaleString()}` : uniqueInventorySkus.toLocaleString();
+    const displaySkuText = totalMasterSkus > 0 
+        ? `${uniqueInventorySkus.toLocaleString()} / ${totalMasterSkus.toLocaleString()} SKU` 
+        : `${uniqueInventorySkus.toLocaleString()} SKU`;
 
     const targetElemIds = ['kpiTotalModels', 'masterSkuStat', 'totalSkuBadge', 'inboundMasterProductsStatBadge'];
     targetElemIds.forEach(id => {
@@ -33,8 +38,8 @@ function updateKPIs() {
     globalInventoryData.forEach(item => {
         const meta = resolveProductMetaData(item.category, item.name, item);
         const typeStr = (meta.itemType || '').toLowerCase();
-        if (typeStr.includes('วัสดุ') || typeStr.includes('consumable')) consumableCount++;
-        else if (typeStr.includes('อะไหล่') || typeStr.includes('spare')) spareCount++;
+        if (typeStr.includes('วัสดุ') || typeStr.includes('consumable') || typeStr.includes('ink')) consumableCount++;
+        else if (typeStr.includes('อะไหล่') || typeStr.includes('spare') || typeStr.includes('gear')) spareCount++;
         else generalCount++;
     });
 
@@ -49,7 +54,39 @@ function updateKPIs() {
 }
 
 // -------------------------------------------------------------------------
-// 🌐 GLOBAL WINDOW EXPORTS (คงฟังก์ชันให้เรียกใช้ผ่าน HTML ได้ 100%)
+// 🔄 ระบบจำและคงหน้าเมนูเดิมไว้โดยไม่ต้องสลับหน้าไปมา (SPA View Persistence)
+// -------------------------------------------------------------------------
+function saveActiveWmsView(sectionId) {
+    if (!sectionId) return;
+    try {
+        localStorage.setItem('WMS_ACTIVE_SECTION_ID', sectionId);
+    } catch(e) {}
+}
+
+function restoreActiveWmsView() {
+    try {
+        const savedSectionId = localStorage.getItem('WMS_ACTIVE_SECTION_ID');
+        if (savedSectionId) {
+            const targetSection = document.getElementById(savedSectionId);
+            if (targetSection) {
+                document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+                targetSection.classList.add('active');
+
+                document.querySelectorAll('.menu-category ul li a, .menu-item button').forEach(btn => {
+                    const btnTarget = btn.getAttribute('onclick') || '';
+                    if (btnTarget.includes(savedSectionId)) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                });
+            }
+        }
+    } catch(e) {}
+}
+
+// -------------------------------------------------------------------------
+// 🌐 GLOBAL WINDOW EXPORTS
 // -------------------------------------------------------------------------
 window.normalizeLoc = normalizeLoc;
 window.formatLocationCode = formatLocationCode;
@@ -119,12 +156,15 @@ window.toggleSelectAllVisibleItems = toggleSelectAllVisibleItems;
 window.toggleItemSelection = toggleItemSelection;
 window.calculateBatchRelocateTargetCoordinates = calculateBatchRelocateTargetCoordinates;
 window.showTableLoadingState = showTableLoadingState;
+window.saveActiveWmsView = saveActiveWmsView;
+window.restoreActiveWmsView = restoreActiveWmsView;
 
 // -------------------------------------------------------------------------
 // 🚀 AUTO-INITIALIZATION ENGINE
 // -------------------------------------------------------------------------
 if (typeof document !== 'undefined') {
     const initInventoryEngine = () => {
+        restoreActiveWmsView();
         if (document.getElementById('inventoryTableBody')) {
             loadDataFromDatabase();
         }

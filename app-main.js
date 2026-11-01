@@ -11,10 +11,10 @@ function initKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
             e.preventDefault();
-            const searchInput = document.getElementById('searchSnInput') || document.getElementById('globalSearchInput');
+            const searchInput = document.getElementById('searchSnInput') || document.getElementById('globalSearchInput') || document.getElementById('menuSearchInput');
             if (searchInput) {
                 searchInput.focus();
-                showToast("🔍 โฟกัสช่องค้นหาด่วน");
+                if (typeof showToast === 'function') showToast("🔍 โฟกัสช่องค้นหาด่วน");
             }
         }
         if (e.key === 'Escape') {
@@ -53,7 +53,7 @@ function toggleAppTheme() {
     document.documentElement.setAttribute('data-theme', nextTheme);
     localStorage.setItem('WMS_THEME_MODE', nextTheme);
     updateThemeToggleUI(nextTheme);
-    showToast(`🎨 เปลี่ยนธีมเป็น: ${nextTheme === 'light' ? 'โหมดสว่าง' : 'โหมดมืด'}`);
+    if (typeof showToast === 'function') showToast(`🎨 เปลี่ยนธีมเป็น: ${nextTheme === 'light' ? 'โหมดสว่าง' : 'โหมดมืด'}`);
 }
 
 function updateThemeToggleUI(theme) {
@@ -77,6 +77,8 @@ function populateAisleDropdowns() {
     const inboundSelect = document.getElementById('inboundAisleSelect');
     const relocateSelect = document.getElementById('relocateAisleSelect');
 
+    if (typeof masterAisles === 'undefined' || !Array.isArray(masterAisles)) return;
+
     const optionsHtml = masterAisles.map(a => {
         let label = `แถว ${a}`;
         if (a === 'DOCK') label = '🚚 ลาน DOCK';
@@ -93,23 +95,27 @@ function populateAisleDropdowns() {
 function generateAutoSN() {
     const rand = Math.floor(100000 + Math.random() * 900000);
     const sn = `SN-${rand}`;
-    document.getElementById('inboundSn').value = sn;
-    showToast(`🪄 สุ่ม S/N: ${sn}`);
+    const inboundSnElem = document.getElementById('inboundSn');
+    if (inboundSnElem) inboundSnElem.value = sn;
+    if (typeof showToast === 'function') showToast(`🪄 สุ่ม S/N: ${sn}`);
 }
 
-// 🟢 1. ย้ายพิกัดสินค้าเดี่ยว: หากเป็น User ทั่วไปส่งเรื่องขออนุมัติ
+// 🟢 1. ย้ายพิกัดสินค้าเดี่ยว: บันทึกและ Auto Refresh เรียลไทม์
 async function submitRelocateLocation() {
-    const sn = document.getElementById('relocateItemSn').textContent;
-    const newLoc = document.getElementById('relocatePreviewBadge').textContent;
+    const snElem = document.getElementById('relocateItemSn');
+    const previewBadge = document.getElementById('relocatePreviewBadge');
+    if (!snElem || !previewBadge) return;
+
+    const sn = snElem.textContent;
+    const newLoc = previewBadge.textContent;
 
     if (newLoc !== 'DOCK' && newLoc !== 'OFFICE' && newLoc !== 'PENDING') {
-        if (occupiedLocationsSet.has(newLoc.toUpperCase())) {
+        if (typeof occupiedLocationsSet !== 'undefined' && occupiedLocationsSet.has(newLoc.toUpperCase())) {
             alert(`⚠️ พิกัด ${newLoc} มีสินค้าจัดเก็บอยู่แล้ว! กรุณาเลือกพิกัดอื่น`);
             return;
         }
     }
 
-    // 🟢 หากเป็น User ทั่วไป -> ส่งเรื่องขออนุมัติย้ายพิกัด
     if (currentUser && currentUser.role === 'user') {
         if (typeof createPendingApprovalRequest === 'function') {
             await createPendingApprovalRequest(
@@ -119,43 +125,48 @@ async function submitRelocateLocation() {
                 { target_location: newLoc, snsToRelocate: [sn] }
             );
         }
-        closeRelocateModal();
+        if (typeof closeRelocateModal === 'function') closeRelocateModal();
+        if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
         return;
     }
 
-    // 🟢 หากเป็น Admin -> ย้ายพิกัดลง DB โดยตรง
-    const item = globalInventoryData.find(i => i.sn === sn);
-    if (item) {
-        item.location = newLoc;
+    if (typeof globalInventoryData !== 'undefined') {
+        const item = globalInventoryData.find(i => i.sn === sn);
+        if (item) {
+            item.location = newLoc;
+        }
     }
 
-    rebuildOccupiedSet();
+    if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
 
-    if (navigator.onLine) {
+    if (navigator.onLine && typeof _supabase !== 'undefined' && _supabase) {
         try {
             await _supabase.from('warehouse_items').update({ location: newLoc }).eq('sn', sn);
         } catch (e) {}
     }
 
-    closeRelocateModal();
-    filterInventoryData();
-    refreshLocationVisualizerIfActive();
-    playSuccessSound();
-    showToast(`🚚 ย้าย S/N: ${sn} ไปยังพิกัด ${newLoc} เรียบร้อยแล้ว`);
-    await logUserActivity('RELOCATE', `ย้ายพิกัดไปที่: ${newLoc}`, sn);
+    if (typeof closeRelocateModal === 'function') closeRelocateModal();
+    if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    if (typeof playSuccessSound === 'function') playSuccessSound();
+    if (typeof showToast === 'function') showToast(`🚚 ย้าย S/N: ${sn} ไปยังพิกัด ${newLoc} เรียบร้อยแล้ว`);
+    if (typeof logUserActivity === 'function') await logUserActivity('RELOCATE', `ย้ายพิกัดไปที่: ${newLoc}`, sn);
+
+    // Auto Refresh หน้าจอและข้อมูลทันที
+    if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
 }
 
-// 🟢 2. ย้ายพิกัดสินค้าแบบกลุ่ม (Batch Relocate): หากเป็น User ทั่วไปส่งเรื่องขออนุมัติ
+// 🟢 2. ย้ายพิกัดสินค้าแบบกลุ่ม (Batch Relocate): บันทึกและ Auto Refresh เรียลไทม์
 async function executeBatchRelocate() {
-    const targetAisle = document.getElementById('batchRelocateAisleSelect').value;
-    const snList = Array.from(selectedItemSnSet);
+    const targetAisleElem = document.getElementById('batchRelocateAisleSelect');
+    if (!targetAisleElem) return;
+    const targetAisle = targetAisleElem.value;
+    const snList = (typeof selectedItemSnSet !== 'undefined') ? Array.from(selectedItemSnSet) : [];
 
     if (snList.length === 0) {
         alert("⚠️ กรุณาเลือกรายการสินค้าอย่างน้อย 1 รายการเพื่อย้าย");
         return;
     }
 
-    // 🟢 หากเป็น User ทั่วไป -> ส่งเรื่องขออนุมัติย้ายพิกัดกลุ่ม
     if (currentUser && currentUser.role === 'user') {
         if (typeof createPendingApprovalRequest === 'function') {
             await createPendingApprovalRequest(
@@ -165,46 +176,49 @@ async function executeBatchRelocate() {
                 { target_aisle: targetAisle, snsToRelocate: snList }
             );
         }
-        selectedItemSnSet.clear();
-        closeBatchRelocateModal();
-        updateSelectedCountUI();
+        if (typeof selectedItemSnSet !== 'undefined') selectedItemSnSet.clear();
+        if (typeof closeBatchRelocateModal === 'function') closeBatchRelocateModal();
+        if (typeof updateSelectedCountUI === 'function') updateSelectedCountUI();
+        if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
         return;
     }
 
-    // 🟢 หากเป็น Admin -> ดำเนินการย้ายพิกัดลง DB โดยตรง
     for (const sn of snList) {
-        const item = globalInventoryData.find(i => i.sn === sn);
-        if (item) {
-            const freeLoc = allocateFreeSlot(targetAisle);
-            item.location = freeLoc;
-            if (navigator.onLine) {
-                await _supabase.from('warehouse_items').update({ location: freeLoc }).eq('sn', sn);
+        if (typeof globalInventoryData !== 'undefined') {
+            const item = globalInventoryData.find(i => i.sn === sn);
+            if (item) {
+                const freeLoc = (typeof allocateFreeSlot === 'function') ? allocateFreeSlot(targetAisle) : targetAisle;
+                item.location = freeLoc;
+                if (navigator.onLine && typeof _supabase !== 'undefined' && _supabase) {
+                    await _supabase.from('warehouse_items').update({ location: freeLoc }).eq('sn', sn);
+                }
             }
         }
     }
 
-    rebuildOccupiedSet();
-    selectedItemSnSet.clear();
-    closeBatchRelocateModal();
-    filterInventoryData();
-    refreshLocationVisualizerIfActive();
-    playSuccessSound();
-    showToast(`🚀 ย้ายสินค้า ${snList.length} รายการไปยังแถว ${targetAisle} เรียบร้อยแล้ว`);
-    await logUserActivity('BATCH_RELOCATE', `ย้ายสินค้ารวม ${snList.length} รายการไปยังแถว ${targetAisle}`);
+    if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
+    if (typeof selectedItemSnSet !== 'undefined') selectedItemSnSet.clear();
+    if (typeof closeBatchRelocateModal === 'function') closeBatchRelocateModal();
+    if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    if (typeof playSuccessSound === 'function') playSuccessSound();
+    if (typeof showToast === 'font-bold') showToast(`🚀 ย้ายสินค้า ${snList.length} รายการไปยังแถว ${targetAisle} เรียบร้อยแล้ว`);
+    if (typeof logUserActivity === 'function') await logUserActivity('BATCH_RELOCATE', `ย้ายสินค้ารวม ${snList.length} รายการไปยังแถว ${targetAisle}`);
+
+    // Auto Refresh หน้าจอและข้อมูลทันที
+    if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
 }
 
-// 🟢 3. ลบสินค้าออกจากคลัง: หากเป็น User ทั่วไปส่งเรื่องขออนุมัติ
+// 🟢 3. ลบสินค้าออกจากคลัง: บันทึกและ Auto Refresh เรียลไทม์
 async function executeDeleteAction() {
     let snsToDelete = [];
     if (pendingDeleteMode === 'SINGLE') {
         snsToDelete = [pendingDeleteSn];
-    } else {
+    } else if (typeof selectedItemSnSet !== 'undefined') {
         snsToDelete = Array.from(selectedItemSnSet);
     }
 
     if (snsToDelete.length === 0) return;
 
-    // 🟢 หากเป็น User ทั่วไป -> ส่งคำขออนุมัติขอลบสินค้า
     if (currentUser && currentUser.role === 'user') {
         if (typeof createPendingApprovalRequest === 'function') {
             await createPendingApprovalRequest(
@@ -214,38 +228,41 @@ async function executeDeleteAction() {
                 { snsToDelete }
             );
         }
-        closeDeleteConfirmModal();
-        selectedItemSnSet.clear();
-        updateSelectedCountUI();
+        if (typeof closeDeleteConfirmModal === 'function') closeDeleteConfirmModal();
+        if (typeof selectedItemSnSet !== 'undefined') selectedItemSnSet.clear();
+        if (typeof updateSelectedCountUI === 'function') updateSelectedCountUI();
+        if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
         return;
     }
 
-    // 🟢 หากเป็น Admin -> ลบข้อมูลออกจาก DB โดยตรง
-    globalInventoryData = globalInventoryData.filter(i => !snsToDelete.includes(i.sn));
-    rebuildOccupiedSet();
+    if (typeof globalInventoryData !== 'undefined') {
+        globalInventoryData = globalInventoryData.filter(i => !snsToDelete.includes(i.sn));
+    }
+    if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
 
-    if (navigator.onLine) {
+    if (navigator.onLine && typeof _supabase !== 'undefined' && _supabase) {
         try {
             await _supabase.from('warehouse_items').delete().in('sn', snsToDelete);
         } catch (e) {}
     }
 
-    closeDeleteConfirmModal();
-    selectedItemSnSet.clear();
-    filterInventoryData();
-    updateKPIs();
-    refreshLocationVisualizerIfActive();
-    playSuccessSound();
-    showToast(`🗑️ ลบสินค้าออกจากระบบ ${snsToDelete.length} รายการเรียบร้อย`);
-    await logUserActivity('DELETE', `ลบสินค้าออกจากระบบ (${snsToDelete.length} รายการ)`, snsToDelete.join(', '));
+    if (typeof closeDeleteConfirmModal === 'function') closeDeleteConfirmModal();
+    if (typeof selectedItemSnSet !== 'undefined') selectedItemSnSet.clear();
+    if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    if (typeof playSuccessSound === 'function') playSuccessSound();
+    if (typeof showToast === 'function') showToast(`🗑️ ลบสินค้าออกจากระบบ ${snsToDelete.length} รายการเรียบร้อย`);
+    if (typeof logUserActivity === 'function') await logUserActivity('DELETE', `ลบสินค้าออกจากระบบ (${snsToDelete.length} รายการ)`, snsToDelete.join(', '));
+
+    // Auto Refresh หน้าจอและข้อมูลทันที
+    if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
     initThemeSystem();
-    initOfflineSyncEngine();
+    if (typeof initOfflineSyncEngine === 'function') initOfflineSyncEngine();
     initKeyboardShortcuts();
 
-    // 🟢 1. ตรวจสอบหน้าปัจจุบันที่จดจำไว้ แล้วสลับไปที่หน้านั้นทันทีโดยไม่สลับไปหน้าสต็อก
+    // 🟢 1. ดึงหน้า View ปัจจุบันขึ้นมาเรนเดอร์ทันทีโดยไม่ขึ้นหน้าขาว
     const activeView = (typeof getCurrentActiveView === 'function') 
         ? getCurrentActiveView() 
         : (localStorage.getItem('WMS_LAST_ACTIVE_VIEW') || 'view-inventory');
@@ -254,19 +271,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         switchView(activeView);
     }
 
-    // 🟢 2. โหลดข้อมูลตามปกติ
-    await initAuthSystem();
-    await loadDataFromDatabase();
-    await loadWarehouseConfigsFromDB();
-    await loadOutboundHistoryFromDB();
-    if (currentUser && currentUser.role === 'admin') {
-        await loadPendingApprovalsFromDB();
+    // 🟢 2. โหลด Auth และ Database ในฉากหลัง
+    if (typeof initAuthSystem === 'function') await initAuthSystem();
+    if (typeof loadDataFromDatabase === 'function') await loadDataFromDatabase();
+    if (typeof loadWarehouseConfigsFromDB === 'function') await loadWarehouseConfigsFromDB();
+    if (typeof loadOutboundHistoryFromDB === 'function') await loadOutboundHistoryFromDB();
+    if (typeof currentUser !== 'undefined' && currentUser && currentUser.role === 'admin') {
+        if (typeof loadPendingApprovalsFromDB === 'function') await loadPendingApprovalsFromDB();
     }
+
     populateAisleDropdowns();
     if (typeof onInboundAisleOrBayChange === 'function') onInboundAisleOrBayChange();
 
-    // 🟢 3. ยืนยันสลับไปหน้าล่าสุดอีกครั้งหลังโหลดข้อมูล DB เสร็จ
-    if (typeof switchView === 'function') {
-        switchView(activeView);
+    // 🟢 3. Auto Refresh อัปเดตข้อมูล DB ลงใน View ปัจจุบันแบบ Seamless
+    if (typeof autoRefreshActiveView === 'function') {
+        autoRefreshActiveView();
     }
 });

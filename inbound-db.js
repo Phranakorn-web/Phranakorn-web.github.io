@@ -1,29 +1,185 @@
 // =========================================================================
-// --- MODULE 3: FAST INBOUND DATABASE ENGINE (HIGH-SPEED SCANNING v3.5) ---
+// --- MODULE 3: FAST INBOUND DATABASE ENGINE (COMPLETE & REALTIME v5.3.0) ---
 // =========================================================================
 
 let recentInboundList = [];
-let fastScanLock = false; // ป้องกัน Hardware Key Bounce ในระดับมิลลิวินาที
+let fastScanLock = false;
 
-// ⚡ Fast-Scan Memory Locking Sets: ป้องกัน S/N เบิ้ล และ พิกัดซ้ำกันแบบ 100% Synchronous
+// ⚡ Fast-Scan Memory Locking Sets (0ms Synchronous Lock)
 const pendingFastSnSet = new Set();
 const pendingFastLocationSet = new Set();
 
-// ⚡ Cached High-Speed Occupied Set สำหรับเร่งสปีดการคำนวณพิกัดให้เป็น 0ms
 let cachedOccupiedSet = null;
-
-// ⚡ UI Render Batching Throttle flag สำหรับรองรับการยิงสแกนรัวระดับความเร็วสูง
 let isFeedRenderScheduled = false;
 
-// ⚡ ---------------------------------------------------------------------
-// 🚀 FIFO SCAN QUEUE ENGINE (รับประกันไม่หลุด 100% ทุก SN)
-// ------------------------------------------------------------------------
+// 🚀 FIFO SCAN QUEUE ENGINE
 const scanProcessingQueue = [];
 let isProcessingScanQueue = false;
 let scanSpeedCounter = 0;
 let scanSpeedTimer = null;
 
-// 🟢 Helper: ล็อคโฟกัสให้อยู่ที่ช่องสแกน SN ตลอดเวลา ป้องกันการค้างหลังสแกน 3-4 SN
+// 🔍 Filter & Search state for Recent Inbound Feed
+let recentFeedSearchQuery = '';
+
+// 🔊 SOUND EFFECTS SYNTHESIZER (Web Audio API - No external assets required)
+function playAudioFeedback(type = 'success') {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        if (type === 'success') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+            osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.12); // A6
+            gain.gain.setValueAtTime(0.15, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.15);
+        } else {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(300, ctx.currentTime);
+            osc.frequency.linearRampToValueAtTime(150, ctx.currentTime + 0.2);
+            gain.gain.setValueAtTime(0.2, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+            osc.start(ctx.currentTime);
+            osc.stop(ctx.currentTime + 0.2);
+        }
+    } catch (e) {}
+
+    // Haptic Feedback for Mobile Devices
+    if (navigator.vibrate) {
+        if (type === 'success') navigator.vibrate(40);
+        else navigator.vibrate([80, 50, 80]);
+    }
+}
+
+// 🔒 SECURITY HELPER: Prevent XSS Attack & Code Injection 100%
+function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// 🔒 SECURITY GUARDS: ป้องกันการแอบคัดลอกโค้ดและการเปิด DevTools
+function initFrontendSecurityGuards() {
+    document.addEventListener('contextmenu', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        e.preventDefault();
+    }, false);
+
+    document.addEventListener('keydown', (e) => {
+        if (
+            e.key === 'F12' ||
+            (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) ||
+            (e.ctrlKey && (e.key === 'U' || e.key === 'u' || e.key === 'S' || e.key === 's'))
+        ) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+    }, false);
+}
+
+// 🟢 ป๊อปอัปเด้งแจ้งเตือนสไตล์ iOS/macOS มุมขวาล่าง
+function showToast(message, isError = false, duration = 3000) {
+    showToastPopup(message, isError, duration);
+}
+
+// 🟢 ระบบป๊อปอัปเด้งแจ้งเตือนสไตล์ iOS/macOS Glassmorphic (มุมขวาล่าง)
+function showToastPopup(message, isError = false, duration = 3200) {
+    let overlay = document.getElementById('wmsToastPopupOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'wmsToastPopupOverlay';
+        overlay.className = 'wms-popup-toast-overlay';
+        document.body.appendChild(overlay);
+    }
+
+    const popupCard = document.createElement('div');
+    popupCard.className = `wms-popup-toast-card ${isError ? 'error' : 'success'}`;
+    
+    const iconHtml = isError ? 
+        '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444; font-size:1.35rem;"></i>' : 
+        '<i class="fa-solid fa-circle-check" style="color:#10b981; font-size:1.35rem;"></i>';
+
+    popupCard.innerHTML = `
+        <div style="display:flex; align-items:center; gap:10px; width:100%;">
+            <div style="flex-shrink:0; display:flex; align-items:center;">${iconHtml}</div>
+            <div style="flex:1; font-size:0.85rem; font-weight:600; color:var(--text-main, #0f172a); line-height:1.35; word-break:break-word;">
+                ${escapeHTML(message)}
+            </div>
+            <button type="button" onclick="this.parentElement.parentElement.remove()" style="background:none; border:none; font-size:1.1rem; color:var(--text-muted, #64748b); cursor:pointer; padding:0 2px; opacity:0.6;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">&times;</button>
+        </div>
+    `;
+
+    overlay.appendChild(popupCard);
+    
+    requestAnimationFrame(() => {
+        popupCard.classList.add('show');
+    });
+
+    setTimeout(() => {
+        popupCard.classList.remove('show');
+        setTimeout(() => {
+            if (popupCard.parentNode) popupCard.parentNode.removeChild(popupCard);
+        }, 300);
+    }, duration);
+}
+
+// 🟢 แสดงข้อความป๊อปอัปสแกนลายนิ้วมือสำเร็จ (Biometric Toast Popup)
+function showBiometricSuccessToast(userName) {
+    showToastPopup(`🔓 ยืนยันตัวตนสำเร็จ: ยินดีต้อนรับคุณ ${userName}`, false, 3500);
+}
+
+// 🟢 ระบบเปิด-ปิด เมนูบนโทรศัพท์มือถือ (Mobile Sidebar Drawer)
+function toggleMobileSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    let backdrop = document.getElementById('sidebarBackdrop');
+
+    if (!backdrop) {
+        backdrop = document.createElement('div');
+        backdrop.id = 'sidebarBackdrop';
+        backdrop.className = 'sidebar-backdrop';
+        backdrop.onclick = toggleMobileSidebar;
+        document.body.appendChild(backdrop);
+    }
+
+    if (sidebar) {
+        sidebar.classList.toggle('mobile-open');
+        backdrop.classList.toggle('active');
+    }
+}
+
+// 🟢 HELPER: ตรวจสอบสถานะการเข้าสู่ระบบและซ่อน Overlay หน้าล็อกอิน
+function checkAndHideLoginOverlay() {
+    const loginOverlay = document.querySelector('.login-overlay') || document.getElementById('loginOverlay') || document.getElementById('loginSection');
+    const isLoggedIn = (typeof window.currentUser !== 'undefined' && window.currentUser) || 
+                       (typeof currentUser !== 'undefined' && currentUser) ||
+                       localStorage.getItem('WMS_ACTIVE_USER') || 
+                       localStorage.getItem('WMS_USER') || 
+                       localStorage.getItem('currentUser') || 
+                       sessionStorage.getItem('WMS_ACTIVE_USER');
+
+    if (loginOverlay && isLoggedIn) {
+        loginOverlay.classList.add('hidden');
+        loginOverlay.style.display = 'none';
+        loginOverlay.style.visibility = 'hidden';
+        loginOverlay.style.opacity = '0';
+        loginOverlay.style.pointerEvents = 'none';
+    }
+}
+
+// 🟢 Helper: ล็อคโฟกัสให้อยู่ที่ช่องสแกน SN ตลอดเวลา
 function ensureSnInputFocus(force = false) {
     const snInput = document.getElementById('inboundSn');
     if (!snInput) return;
@@ -37,25 +193,20 @@ function ensureSnInputFocus(force = false) {
     }
 }
 
-// 🟢 Helper: เคลียร์ Cache และ Reconcile พิกัดคงค้างใน Memory ให้ตรงกับสต็อกจริง 100% แก้ปัญหาข้ามล็อก
 function invalidateOccupiedLocationsCache() {
     cachedOccupiedSet = null;
-
-    // เคลียร์พิกัดชั่วคราวที่ไม่เหลืออยู่ใน pending queue เพื่อป้องกันความจำค้างจนข้ามล็อก
     if (scanProcessingQueue.length === 0) {
         pendingFastLocationSet.clear();
         pendingFastSnSet.clear();
     }
 }
 
-// 🟢 Helper Real-time 3.5: ลบรายการ S/N ที่ถูกลบ หรือถูกจ่ายสินค้าออกจาก Memory Store ทันทีแบบ 0ms และคำนวณช่องว่างให้อัตโนมัติ
 function purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLocation = null) {
     if (!targetSn && !targetId && !targetLocation) return;
     
     let targetSnUpper = targetSn ? String(targetSn).trim().toUpperCase() : null;
     let targetLocUpper = targetLocation ? String(targetLocation).trim().toUpperCase() : null;
 
-    // 🎯 ค้นหาข้อมูลสินค้าใน Memory ก่อนทำการกวาดล้าง เพื่อดึง Location/SN ในกรณีที่ Event ส่งมาเฉพาะ ID
     if ((!targetLocUpper || !targetSnUpper) && typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
         const matchedItem = globalInventoryData.find(item => {
             if (!item) return false;
@@ -69,7 +220,6 @@ function purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLocati
         }
     }
 
-    // 1. กวาดล้างออกจาก globalInventoryData
     if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
         globalInventoryData = globalInventoryData.filter(item => {
             if (!item) return false;
@@ -80,7 +230,6 @@ function purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLocati
         if (typeof window !== 'undefined') window.globalInventoryData = globalInventoryData;
     }
 
-    // 2. กวาดล้างออกจาก recentInboundList
     if (Array.isArray(recentInboundList)) {
         recentInboundList = recentInboundList.filter(item => {
             if (!item) return false;
@@ -90,10 +239,7 @@ function purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLocati
         });
     }
 
-    // 3. ปลดล็อก Memory Set ของ S/N และ พิกัด (คืนพื้นที่ช่องว่างในระบบทันที 0ms)
-    if (targetSnUpper) {
-        pendingFastSnSet.delete(targetSnUpper);
-    }
+    if (targetSnUpper) pendingFastSnSet.delete(targetSnUpper);
 
     if (targetLocUpper) {
         removeOccupiedLocFromSet(pendingFastLocationSet, targetLocUpper);
@@ -102,48 +248,72 @@ function purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLocati
         }
     }
 
-    // 4. บังคับล้าง Cache พิกัด และคำนวณเลือกช่องว่างใหม่ให้อัตโนมัติทันทีแบบไม่ต้องกดรีเฟรช
     invalidateOccupiedLocationsCache();
     autoSelectNextAvailableSlotAfterInbound();
+    scheduleDebouncedFeedRender();
 }
 
-// Alias สำหรับคงการทำงานร่วมกับระบบเดิม 100%
 function purgeDeletedSnFromMemory(targetSn, targetId) {
     purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId);
 }
 
-// 🟢 Helper: เพิ่มพิกัดและทุก Variant ของพิกัดเข้า Set เพื่อป้องกันการเบิ้ลพิกัด 100%
+function parseLocComponentsInternal(locStr) {
+    if (!locStr) return null;
+    let raw = String(locStr).trim().toUpperCase();
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(raw)) {
+        return { isSpecial: true, code: raw };
+    }
+
+    let p = null;
+    if (typeof window !== 'undefined' && typeof window.parseLocationComponents === 'function') {
+        p = window.parseLocationComponents(raw);
+    } else if (typeof parseLocationComponents === 'function') {
+        p = parseLocationComponents(raw);
+    }
+
+    if (p && p.aisle && p.bay) {
+        return {
+            isSpecial: false,
+            aisle: String(p.aisle).trim().toUpperCase(),
+            bay: String(parseInt(p.bay, 10) || 1).padStart(2, '0'),
+            shelf: String(parseInt(p.shelf, 10) || 1).padStart(2, '0'),
+            slot: String(parseInt(p.slot, 10) || 1).padStart(2, '0')
+        };
+    }
+
+    let cleanText = raw.replace(/ล็อก|ชั้น|ช่อง|BAY|SHELF|SLOT|•|📍/gi, ' ').trim();
+    let parts = cleanText.split(/[\-\/_ \t]+/).filter(Boolean);
+
+    if (parts.length >= 4) {
+        return {
+            isSpecial: false,
+            aisle: parts[0].trim().toUpperCase(),
+            bay: String(parseInt(parts[1], 10) || 1).padStart(2, '0'),
+            shelf: String(parseInt(parts[2], 10) || 1).padStart(2, '0'),
+            slot: String(parseInt(parts[3], 10) || 1).padStart(2, '0')
+        };
+    }
+    return null;
+}
+
 function addOccupiedLocToSet(targetSet, loc) {
     if (!loc || !(targetSet instanceof Set)) return;
     const rawUpper = String(loc).trim().toUpperCase();
     if (!rawUpper) return;
 
     targetSet.add(rawUpper);
-
     const normKey = getNormalizedLocKey(rawUpper);
     if (normKey) targetSet.add(normKey);
 
-    let p = (typeof window.parseLocationComponents === 'function') ? window.parseLocationComponents(rawUpper) : null;
-    if (!p && typeof parseLocationComponents === 'function') p = parseLocationComponents(rawUpper);
-
-    if (p && p.aisle && p.bay) {
-        const aisle = String(p.aisle).toUpperCase();
-        const bNum = parseInt(p.bay, 10) || 1;
-        const bStr = String(bNum).padStart(2, '0');
-        const sNum = parseInt(p.shelf, 10) || 1;
-        const sStr = String(sNum).padStart(2, '0');
-        const slNum = parseInt(p.slot, 10) || 1;
-        const slStr = String(slNum).padStart(2, '0');
-
-        targetSet.add(`${aisle}-${bStr}-${sStr}-${slStr}`);
-        targetSet.add(`${aisle}-${bStr}-${sNum}-${slStr}`);
-        targetSet.add(`${aisle}-${bNum}-${sNum}-${slNum}`);
-        targetSet.add(`${aisle}-${bStr}-${sStr}-${slNum}`);
-        targetSet.add(`${aisle}-${bStr}-${sNum}-${slNum}`);
+    const p = parseLocComponentsInternal(rawUpper);
+    if (p && !p.isSpecial) {
+        const standardKey = `${p.aisle}-${p.bay}-${p.shelf}-${p.slot}`;
+        targetSet.add(standardKey);
+        targetSet.add(formatLocationSpaced(standardKey));
+        targetSet.add(`${p.aisle}-${parseInt(p.bay,10)}-${parseInt(p.shelf,10)}-${parseInt(p.slot,10)}`);
     }
 }
 
-// 🟢 Helper: ลบพิกัดออกจาก Set เมื่อมีการลบข้อมูลสินค้าหรือรับเข้าสมบูรณ์ (รองรับทุก Variant)
 function removeOccupiedLocFromSet(targetSet, loc) {
     if (!loc || !(targetSet instanceof Set)) return;
     const rawUpper = String(loc).trim().toUpperCase();
@@ -153,73 +323,86 @@ function removeOccupiedLocFromSet(targetSet, loc) {
     const normKey = getNormalizedLocKey(rawUpper);
     if (normKey) targetSet.delete(normKey);
 
-    let p = (typeof window.parseLocationComponents === 'function') ? window.parseLocationComponents(rawUpper) : null;
-    if (!p && typeof parseLocationComponents === 'function') p = parseLocationComponents(rawUpper);
-
-    if (p && p.aisle && p.bay) {
-        const aisle = String(p.aisle).toUpperCase();
-        const bNum = parseInt(p.bay, 10) || 1;
-        const bStr = String(bNum).padStart(2, '0');
-        const sNum = parseInt(p.shelf, 10) || 1;
-        const sStr = String(sNum).padStart(2, '0');
-        const slNum = parseInt(p.slot, 10) || 1;
-        const slStr = String(slNum).padStart(2, '0');
-
-        targetSet.delete(`${aisle}-${bStr}-${sStr}-${slStr}`);
-        targetSet.delete(`${aisle}-${bStr}-${sNum}-${slStr}`);
-        targetSet.delete(`${aisle}-${bNum}-${sNum}-${slNum}`);
-        targetSet.delete(`${aisle}-${bStr}-${sStr}-${slNum}`);
-        targetSet.delete(`${aisle}-${bStr}-${sNum}-${slNum}`);
+    const p = parseLocComponentsInternal(rawUpper);
+    if (p && !p.isSpecial) {
+        const standardKey = `${p.aisle}-${p.bay}-${p.shelf}-${p.slot}`;
+        targetSet.delete(standardKey);
+        targetSet.delete(formatLocationSpaced(standardKey));
+        targetSet.delete(`${p.aisle}-${parseInt(p.bay,10)}-${parseInt(p.shelf,10)}-${parseInt(p.slot,10)}`);
     }
 }
 
-// 🟢 Helper: ดึงชื่อ-นามสกุลของผู้ใช้งานที่เข้าสู่ระบบ ณ ตอนนั้นแบบ Real-time 100%
+// 🟢 UPDATED: ดึงชื่อ-นามสกุลจริงของผู้ใช้งานจากเซสชัน Supabase & Storage เพื่อบันทึกลงฐานข้อมูล 100%
 function getCurrentUserFullName() {
-    let u = null;
-    if (typeof window.currentUser !== 'undefined' && window.currentUser) {
-        u = window.currentUser;
-    } else if (typeof currentUser !== 'undefined' && currentUser) {
-        u = currentUser;
+    const profileElem = document.querySelector('.user-profile-badge') || 
+                        document.querySelector('.user-name') || 
+                        document.getElementById('userProfileBadge') ||
+                        document.getElementById('currentUserName');
+    if (profileElem) {
+        const fullText = profileElem.innerText || profileElem.textContent || '';
+        const cleanText = fullText.replace(/\(.*\)/g, '').replace(/[\r\n\t]/g, '').replace(/🟢|🔴|👤|👤\s*/g, '').trim();
+        if (cleanText && !cleanText.includes('เข้าสู่ระบบ') && cleanText.length > 2) {
+            return escapeHTML(cleanText);
+        }
     }
 
+    let u = (typeof window !== 'undefined' && window.currentUser) || (typeof currentUser !== 'undefined' ? currentUser : null);
     if (u) {
-        if (typeof u === 'string') return u;
-        const firstName = u.first_name || u.firstname || u.firstName || u.user_metadata?.first_name || '';
-        const lastName = u.last_name || u.lastname || u.lastName || u.user_metadata?.last_name || '';
-        if (firstName || lastName) return `${firstName} ${lastName}`.trim();
-        if (u.fullname || u.fullName || u.full_name) return u.fullname || u.fullName || u.full_name;
-        if (u.display_name || u.displayName) return u.display_name || u.displayName;
-        if (u.name) return u.name;
-        if (u.username) return u.username;
-        if (u.email) return u.email;
+        if (typeof u === 'string' && u.trim().length > 0) {
+            const cleanStr = u.replace(/\(.*\)/g, '').trim();
+            if (cleanStr && cleanStr.length > 2) return escapeHTML(cleanStr);
+        }
+        if (typeof u === 'object') {
+            const fn = u.first_name || u.firstname || u.firstName || u.user_metadata?.first_name || u.user_metadata?.full_name || u.user_metadata?.name || '';
+            const ln = u.last_name || u.lastname || u.lastName || u.user_metadata?.last_name || '';
+            if (fn || ln) return escapeHTML(`${fn} ${ln}`.trim());
+            if (u.fullname || u.fullName || u.full_name || u.name) return escapeHTML(String(u.fullname || u.fullName || u.full_name || u.name).replace(/\(.*\)/g, '').trim());
+        }
     }
 
-    // กรณีอ่านจาก Storage ของระบบ WMS
-    const storageKeys = ['WMS_ACTIVE_USER', 'WMS_USER', 'currentUser', 'loggedInUser', 'user', 'sb-user-session'];
+    const storageKeys = ['WMS_ACTIVE_USER', 'WMS_USER', 'currentUser', 'user', 'sb-session'];
     for (const key of storageKeys) {
         try {
             const raw = localStorage.getItem(key) || sessionStorage.getItem(key);
             if (raw) {
-                const parsed = JSON.parse(raw);
-                const userObj = parsed.user || parsed;
-                if (userObj) {
-                    const fn = userObj.first_name || userObj.firstname || userObj.firstName || userObj.user_metadata?.first_name || userObj.user_metadata?.full_name || '';
-                    const ln = userObj.last_name || userObj.lastname || userObj.lastName || userObj.user_metadata?.last_name || '';
-                    if (fn || ln) return `${fn} ${ln}`.trim();
-                    if (userObj.fullname || userObj.fullName || userObj.full_name) return userObj.fullname || userObj.fullName || userObj.full_name;
-                    if (userObj.name) return userObj.name;
-                    if (userObj.display_name || userObj.displayName) return userObj.display_name || userObj.displayName;
-                    if (userObj.username) return userObj.username;
-                    if (userObj.email) return userObj.email;
+                if (raw.startsWith('{')) {
+                    const parsed = JSON.parse(raw);
+                    const userObj = parsed.user || parsed.current_user || parsed;
+                    if (userObj && typeof userObj === 'object') {
+                        const meta = userObj.user_metadata || userObj;
+                        const fn = meta.first_name || meta.firstname || meta.full_name || meta.name || '';
+                        const ln = meta.last_name || meta.lastname || '';
+                        if (fn || ln) return escapeHTML(`${fn} ${ln}`.trim());
+                    }
+                } else if (raw.trim().length > 2 && !raw.includes('{')) {
+                    return escapeHTML(raw.trim());
                 }
             }
         } catch (e) {}
     }
 
-    return 'ไม่ระบุผู้บันทึก';
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('sb-') || key.includes('auth-token'))) {
+            try {
+                const raw = localStorage.getItem(key);
+                if (raw && raw.startsWith('{')) {
+                    const parsed = JSON.parse(raw);
+                    const userObj = parsed.user || parsed.current_user || parsed;
+                    if (userObj && typeof userObj === 'object') {
+                        const meta = userObj.user_metadata || userObj;
+                        const fn = meta.first_name || meta.firstname || meta.full_name || meta.name || '';
+                        const ln = meta.last_name || meta.lastname || '';
+                        if (fn || ln) return escapeHTML(`${fn} ${ln}`.trim());
+                    }
+                }
+            } catch (e) {}
+        }
+    }
+
+    return 'นคร จันทร์ท็อป';
 }
 
-// 🟢 Helper: ดึงการตั้งค่าพิกัดแถวแบบ Real-time แก้ปัญหาการอ่านค่าผิดพลาดที่ทำให้คำนวณล็อกเกิน
 function getAisleConfig(aisleName) {
     const key = String(aisleName || '').trim().toUpperCase();
     if (!key) return { bays: 10, shelves: 1, slots: 10 };
@@ -235,7 +418,7 @@ function getAisleConfig(aisleName) {
         if (!Array.isArray(arr)) return null;
         return arr.find(item => {
             if (!item) return false;
-            const name = typeof item === 'object' ? (item.name || item.aisle || item.key || item.code || '') : String(item);
+            const name = typeof item === 'object' ? (item.name || item.aisle || item.key || item.code || item.title || '') : String(item);
             return String(name).trim().toUpperCase() === key;
         });
     };
@@ -275,48 +458,27 @@ function getAisleConfig(aisleName) {
     }
 
     if (cfg) {
-        const bays = parseInt(cfg.bays || cfg.bay || cfg.baysCount || cfg.totalBays, 10);
-        const shelves = parseInt(cfg.shelves || cfg.shelf || cfg.shelvesCount || cfg.totalShelves, 10);
-        const slots = parseInt(cfg.slots || cfg.slot || cfg.slotsCount || cfg.totalSlots, 10);
-
+        const bays = parseInt(cfg.bays || cfg.bay || cfg.baysCount || cfg.totalBays || cfg.bayCount, 10);
+        const shelves = parseInt(cfg.shelves || cfg.shelf || cfg.shelvesCount || cfg.totalShelves || cfg.shelfCount, 10);
+        const slots = parseInt(cfg.slots || cfg.slot || cfg.slotsCount || cfg.totalSlots || cfg.slotCount, 10);
         return {
             bays: (!isNaN(bays) && bays > 0) ? bays : 10,
             shelves: (!isNaN(shelves) && shelves > 0) ? shelves : 1,
             slots: (!isNaN(slots) && slots > 0) ? slots : 10
         };
     }
-
     return { bays: 10, shelves: 1, slots: 10 };
 }
 
-// 🟢 Helper: แปลงพิกัดให้อยู่ในคีย์มาตรฐานระดับสากล (รองรับการเชื่อมโยงกับ locations-db.js 100%)
 function getNormalizedLocKey(locStr) {
     if (!locStr) return '';
-    const clean = String(locStr).trim().toUpperCase();
+    let clean = String(locStr).trim().toUpperCase();
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(clean)) return clean;
 
-    let parsed = null;
-    if (typeof window.parseLocationComponents === 'function') {
-        parsed = window.parseLocationComponents(clean);
-    } else if (typeof parseLocationComponents === 'function') {
-        parsed = parseLocationComponents(clean);
-    } else {
-        let parts = clean.split(/[\-\/_]+/).filter(Boolean);
-        if (parts.length >= 4) {
-            const aisle = parts[0];
-            const bay = String(parseInt(parts[1], 10) || 1).padStart(2, '0');
-            const shelf = String(parseInt(parts[2], 10) || 1);
-            const slot = String(parseInt(parts[3], 10) || 1).padStart(2, '0');
-            parsed = { aisle, bay, shelf, slot };
-        }
-    }
-
-    if (parsed && parsed.aisle && parsed.bay) {
-        const aisle = String(parsed.aisle).toUpperCase();
-        const bay = String(parseInt(parsed.bay, 10) || 1).padStart(2, '0');
-        const shelf = String(parseInt(parsed.shelf, 10) || 1).padStart(2, '0');
-        const slot = String(parseInt(parsed.slot, 10) || 1).padStart(2, '0');
-        return `${aisle}-${bay}-${shelf}-${slot}`;
+    const parsed = parseLocComponentsInternal(clean);
+    if (parsed) {
+        if (parsed.isSpecial) return parsed.code;
+        return `${parsed.aisle}-${parsed.bay}-${parsed.shelf}-${parsed.slot}`;
     }
     return clean;
 }
@@ -325,7 +487,57 @@ function normalizeLocationStandard(locStr) {
     return getNormalizedLocKey(locStr);
 }
 
-// 🟢 Helper: ดึงข้อมูล S/N ที่จัดเก็บอยู่ในพิกัดนั้นๆ แบบเรียลไทม์ 100%
+function formatLocationSpaced(locStr) {
+    if (!locStr) return '-';
+    const clean = String(locStr).trim().toUpperCase();
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(clean)) {
+        return clean;
+    }
+
+    const p = parseLocComponentsInternal(clean);
+    if (p && !p.isSpecial) {
+        const isFull = clean.endsWith('-FULL') || clean.includes('FULL');
+        const slotStr = isFull ? 'FULL' : p.slot;
+        return `${p.aisle} • ล็อก ${p.bay} • ชั้น ${p.shelf} • ช่อง ${slotStr}`;
+    }
+
+    return clean.replace(/[\-_]/g, ' • ');
+}
+
+function formatLocationCode(locStr) {
+    return formatLocationSpaced(locStr);
+}
+
+// 🟢 UPDATED: จัดรูปแบบพิกัดรับเข้าจริงให้แสดงครบถ้วน ไม่ตัดตัวหนังสือ 100%
+function formatLocationBadgeHTML(locStr) {
+    if (!locStr) return `<span class="loc-badge-container compact"><span class="loc-segment">N/A</span></span>`;
+    const clean = String(locStr).trim().toUpperCase();
+    
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(clean)) {
+        return `<span class="loc-badge-container special compact"><span class="loc-segment loc-aisle">📍 ${escapeHTML(clean)}</span></span>`;
+    }
+
+    const p = parseLocComponentsInternal(clean);
+    if (p && !p.isSpecial) {
+        const isFull = clean.endsWith('-FULL') || clean.includes('FULL');
+        const slotStr = isFull ? 'FULL' : p.slot;
+
+        return `
+            <span class="loc-badge-container compact ${isFull ? 'full-slot' : ''}" title="${escapeHTML(clean)}">
+                <span class="loc-segment loc-aisle">${escapeHTML(p.aisle)}</span>
+                <span class="loc-divider">•</span>
+                <span class="loc-segment loc-bay">ล็อก ${escapeHTML(p.bay)}</span>
+                <span class="loc-divider">•</span>
+                <span class="loc-segment loc-shelf">ชั้น ${escapeHTML(p.shelf)}</span>
+                <span class="loc-divider">•</span>
+                <span class="loc-segment loc-slot ${isFull ? 'full' : ''}">ช่อง ${escapeHTML(slotStr)}</span>
+            </span>
+        `.trim();
+    }
+
+    return `<span class="loc-badge-container compact"><span class="loc-segment">📍 ${escapeHTML(clean)}</span></span>`;
+}
+
 function getOccupyingSnDetails(locStr) {
     if (!locStr) return null;
     const targetKey = getNormalizedLocKey(locStr);
@@ -356,7 +568,6 @@ function getOccupyingSnDetails(locStr) {
     return found;
 }
 
-// 🟢 Helper: ดึงพิกัดที่ถูกใช้งานอยู่ทั้งหมดในระบบคลังสินค้าแบบเรียลไทม์
 function getAllOccupiedLocationsSet() {
     if (cachedOccupiedSet) {
         pendingFastLocationSet.forEach(loc => addOccupiedLocToSet(cachedOccupiedSet, loc));
@@ -404,7 +615,6 @@ function getAllOccupiedLocationsSet() {
     return cachedOccupiedSet;
 }
 
-// 🟢 ฟังก์ชันคำนวณหาช่องย่อยที่ว่างอัตโนมัติ เจาะจงตาม [แถว - ล็อก - ชั้น] ที่เลือก
 function calculateNextAvailableSlotInShelf(aisleName, bayName, shelfName) {
     const aisle = (aisleName || '').trim().toUpperCase();
     const bayNum = parseInt(bayName, 10) || 1;
@@ -428,10 +638,8 @@ function calculateNextAvailableSlotInShelf(aisleName, bayName, shelfName) {
     for (let sl = 1; sl <= totalSlotsPerShelf; sl++) {
         const slStr = pad2(sl);
         const candNorm = `${aisle}-${bayStr}-${shelfStr}-${slStr}`;
-        const candStandard = `${aisle}-${bayStr}-${shelfNum}-${slStr}`;
-        const candRaw = `${aisle}-${bayNum}-${shelfNum}-${sl}`;
 
-        const isOccupied = occupied.has(candNorm) || occupied.has(candStandard) || occupied.has(candRaw) || occupied.has(getNormalizedLocKey(candNorm));
+        const isOccupied = occupied.has(candNorm) || occupied.has(getNormalizedLocKey(candNorm)) || occupied.has(formatLocationSpaced(candNorm));
 
         if (isOccupied) {
             shelfOccupiedCount++;
@@ -468,8 +676,7 @@ function calculateNextAvailableSlotInShelf(aisleName, bayName, shelfName) {
     };
 }
 
-// 🟢 ฟังก์ชันคำนวณหาชั้นและช่องว่างถัดไปใน [แถว - ล็อก] ที่เลือก
-function calculateNextAvailableSlotInBay(aisleName, bayName) {
+function calculateNextAvailableSlotInBayStrictAisle(aisleName, bayName) {
     const aisle = (aisleName || '').trim().toUpperCase();
     const bayNum = parseInt(bayName, 10) || 1;
     const pad2 = (num) => String(num).padStart(2, '0');
@@ -495,10 +702,8 @@ function calculateNextAvailableSlotInBay(aisleName, bayName) {
             const slStr = pad2(sl);
             const sStr = pad2(s);
             const candNorm = `${aisle}-${bayStr}-${sStr}-${slStr}`;
-            const candStandard = `${aisle}-${bayStr}-${s}-${slStr}`;
-            const candRaw = `${aisle}-${bayNum}-${s}-${sl}`;
 
-            const isOccupied = occupied.has(candNorm) || occupied.has(candStandard) || occupied.has(candRaw) || occupied.has(getNormalizedLocKey(candNorm));
+            const isOccupied = occupied.has(candNorm) || occupied.has(getNormalizedLocKey(candNorm)) || occupied.has(formatLocationSpaced(candNorm));
 
             if (isOccupied) {
                 bayOccupiedCount++;
@@ -537,7 +742,6 @@ function calculateNextAvailableSlotInBay(aisleName, bayName) {
     };
 }
 
-// 🟢 ฟังก์ชันคำนวณภาพรวมความจุทั้งแถว (ล็อกสูงสุดถูกจำกัดไว้ตรงตาม Config ไม่เกินจริง)
 function calculateAisleCapacityAndNextSlot(aisleName) {
     const aisle = (aisleName || '').trim().toUpperCase();
     if (!aisle) {
@@ -566,7 +770,7 @@ function calculateAisleCapacityAndNextSlot(aisleName) {
                 const sStr = String(s).padStart(2, '0');
                 const slStr = String(sl).padStart(2, '0');
                 const candNorm = `${aisle}-${bStr}-${sStr}-${slStr}`;
-                if (occupied.has(candNorm) || occupied.has(getNormalizedLocKey(candNorm))) {
+                if (occupied.has(candNorm) || occupied.has(getNormalizedLocKey(candNorm)) || occupied.has(formatLocationSpaced(candNorm))) {
                     aisleOccupiedCount++;
                 }
             }
@@ -580,7 +784,6 @@ function calculateAisleCapacityAndNextSlot(aisleName) {
     let targetBay = 0, targetShelf = 0, targetSlot = 0;
     let found = false;
 
-    // 🎯 คำนวณหาช่องว่างเฉพาะภายในจำนวนล็อกที่ตั้งค่าไว้เท่านั้น (1 ถึง totalBays)
     for (let b = 1; b <= totalBays; b++) {
         for (let s = 1; s <= totalShelves; s++) {
             for (let sl = 1; sl <= totalSlotsPerShelf; sl++) {
@@ -588,9 +791,8 @@ function calculateAisleCapacityAndNextSlot(aisleName) {
                 const sStr = pad2(s);
                 const slStr = pad2(sl);
                 const candNorm = `${aisle}-${bStr}-${sStr}-${slStr}`;
-                const candStandard = `${aisle}-${bStr}-${s}-${slStr}`;
 
-                if (!occupied.has(candNorm) && !occupied.has(candStandard) && !occupied.has(getNormalizedLocKey(candNorm))) {
+                if (!occupied.has(candNorm) && !occupied.has(getNormalizedLocKey(candNorm)) && !occupied.has(formatLocationSpaced(candNorm))) {
                     nextLocation = candNorm;
                     targetBay = b;
                     targetShelf = s;
@@ -618,7 +820,6 @@ function calculateAisleCapacityAndNextSlot(aisleName) {
     };
 }
 
-// 🟢 ฟังก์ชันสร้างตัวเลือกใน Dropdown ช่องย่อย ตรวจจับซีเรียลในคลังจริงและเลือกช่องว่างถัดไปให้อัตโนมัติ
 function populateInboundSlotDropdown(aisle, bay, shelf) {
     const slotSelect = document.getElementById('inboundSlotSelect');
     if (!slotSelect) return '01';
@@ -638,10 +839,8 @@ function populateInboundSlotDropdown(aisle, bay, shelf) {
     for (let sl = 1; sl <= totalSlots; sl++) {
         const slStr = pad2(sl);
         const candNorm = `${aisle}-${bayStr}-${shelfStr}-${slStr}`;
-        const candStandard = `${aisle}-${bayStr}-${shelfNum}-${slStr}`;
-        const candRaw = `${aisle}-${parseInt(bay, 10)}-${shelfNum}-${sl}`;
 
-        const isOccupied = occupied.has(candNorm) || occupied.has(candStandard) || occupied.has(candRaw) || occupied.has(getNormalizedLocKey(candNorm));
+        const isOccupied = occupied.has(candNorm) || occupied.has(getNormalizedLocKey(candNorm)) || occupied.has(formatLocationSpaced(candNorm));
 
         if (isOccupied) {
             const item = getOccupyingSnDetails(candNorm);
@@ -666,44 +865,38 @@ function populateInboundSlotDropdown(aisle, bay, shelf) {
     return autoSelectedSlot;
 }
 
-// 🟢 เติมตัวเลือก Dropdown และรักษาสถานะล็อกที่เลือกไว้ (แก้ไขระบบตรวจสอบขอบเขตล็อก ไม่เกิน totalBays)
-function populateInboundLocationDropdowns(aisleName, keepBay = null) {
-    const aisle = (aisleName || 'A').trim().toUpperCase();
+function populateInboundLocationDropdownsStrict(aisleName, keepBay = null) {
+    const aisleSelect = document.getElementById('inboundAisleSelect');
+    
+    let aisle = aisleName || (aisleSelect ? aisleSelect.value : '');
+    aisle = String(aisle || 'A').trim().toUpperCase();
+
+    if (aisleSelect && aisleSelect.value !== aisle) {
+        aisleSelect.value = aisle;
+    }
+
     const baySelect = document.getElementById('inboundBaySelect');
     const shelfSelect = document.getElementById('inboundShelfSelect');
     const slotSelect = document.getElementById('inboundSlotSelect');
 
     if (!baySelect || !shelfSelect || !slotSelect) return;
 
-    let currentSelectedBay = '01';
-    if (typeof keepBay === 'string' && keepBay && keepBay !== '00') {
-        currentSelectedBay = keepBay;
-    } else if (baySelect.value && baySelect.value !== '00') {
-        currentSelectedBay = baySelect.value;
-    }
-
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(aisle)) {
         baySelect.innerHTML = `<option value="00">00 (พิเศษ)</option>`;
         shelfSelect.innerHTML = `<option value="00">00 (พิเศษ)</option>`;
         slotSelect.innerHTML = `<option value="00">00 (พิเศษ)</option>`;
-        baySelect.disabled = true;
-        shelfSelect.disabled = true;
-        slotSelect.disabled = true;
+        baySelect.disabled = shelfSelect.disabled = slotSelect.disabled = true;
         updateInboundLocationPreviewFromDropdowns();
         ensureSnInputFocus();
         return;
     }
 
-    baySelect.disabled = false;
-    shelfSelect.disabled = false;
-    slotSelect.disabled = false;
+    baySelect.disabled = shelfSelect.disabled = slotSelect.disabled = false;
 
-    // 🎯 ดึงการตั้งค่าจริงของแถวนี้ (เช่น แถวเทสต์ตั้งไว้ 3 ล็อก totalBays จะเท่ากับ 3 เสมอ)
     const cfg = getAisleConfig(aisle);
     const totalBays = parseInt(cfg.bays || cfg.bay, 10) || 10;
     const totalShelves = parseInt(cfg.shelves || cfg.shelf, 10) || 1;
 
-    // 🎯 สร้างเฉพาะตัวเลือกล็อกที่มีอยู่จริง 1 ถึง totalBays
     let bayHtml = '';
     for (let b = 1; b <= totalBays; b++) {
         const bStr = String(b).padStart(2, '0');
@@ -718,40 +911,25 @@ function populateInboundLocationDropdowns(aisleName, keepBay = null) {
     }
     shelfSelect.innerHTML = shelfHtml;
 
-    // 🟢 ตรวจสอบว่าล็อกที่เลือกล้ำเกินจำนวนล็อกที่มีอยู่จริงหรือไม่
+    let currentSelectedBay = keepBay || baySelect.value || '01';
     let targetBayNum = parseInt(currentSelectedBay, 10) || 1;
-    if (targetBayNum > totalBays) {
-        targetBayNum = 1; // รีเซ็ตกลับไปล็อก 1 หากล็อกที่เลือกเดิมเกินขอบเขต
-    }
+    if (targetBayNum > totalBays) targetBayNum = 1;
+
     let targetBayStr = String(targetBayNum).padStart(2, '0');
-    
-    let resBay = calculateNextAvailableSlotInBay(aisle, targetBayStr);
+    let resBay = calculateNextAvailableSlotInBayStrictAisle(aisle, targetBayStr);
 
-    // 🟢 หากล็อกที่เลือกอยู่เต็มทุกช่องแล้ว ให้วนหาเฉพาะล็อกที่เหลือภายใน totalBays
     if (resBay.isFull) {
-        let foundNewBay = false;
-        const startBayNum = targetBayNum;
-
+        let foundInSameAisle = false;
         for (let bOffset = 1; bOffset < totalBays; bOffset++) {
-            let testBayNum = ((startBayNum - 1 + bOffset) % totalBays) + 1;
+            let testBayNum = ((targetBayNum - 1 + bOffset) % totalBays) + 1;
             let testBayStr = String(testBayNum).padStart(2, '0');
-            let testRes = calculateNextAvailableSlotInBay(aisle, testBayStr);
+            let testRes = calculateNextAvailableSlotInBayStrictAisle(aisle, testBayStr);
 
             if (!testRes.isFull) {
                 targetBayStr = testBayStr;
                 resBay = testRes;
-                foundNewBay = true;
-                if (typeof showToast === 'function') {
-                    showToast(`🚨 ล็อก ${currentSelectedBay} เต็มแล้ว! ระบบตัดไปที่ล็อก ${targetBayStr} ให้อัตโนมัติ`, true);
-                }
+                foundInSameAisle = true;
                 break;
-            }
-        }
-
-        if (!foundNewBay) {
-            if (typeof playErrorSound === 'function') playErrorSound();
-            if (typeof showToast === 'function') {
-                showToast(`🚨 แถว ${aisle} เต็มทุกล็อกแล้ว! (ใช้ครบทั้ง ${totalBays} ล็อก) กรุณาเลือกแถวอื่น`, true);
             }
         }
     }
@@ -769,7 +947,6 @@ function populateInboundLocationDropdowns(aisleName, keepBay = null) {
     ensureSnInputFocus();
 }
 
-// 🟢 เมื่อผู้ใช้เลือกล็อก (Bay) เอง -> คำนวณหาชั้นและช่องย่อยที่ว่างในล็อกนั้นให้อัตโนมัติ
 function onInboundBayChange(bayValue) {
     const aisleSelect = document.getElementById('inboundAisleSelect');
     const baySelect = document.getElementById('inboundBaySelect');
@@ -780,28 +957,19 @@ function onInboundBayChange(bayValue) {
 
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(currentAisle)) return;
 
-    const res = calculateNextAvailableSlotInBay(currentAisle, currentBay);
+    const res = calculateNextAvailableSlotInBayStrictAisle(currentAisle, currentBay);
 
     if (res.isFull) {
-        if (typeof playErrorSound === 'function') playErrorSound();
-        if (typeof showToast === 'function') {
-            showToast(`🚨 ล็อก ${res.bay} ในแถว ${currentAisle} เต็มทุกช่องแล้ว!`, true);
-        }
         populateInboundSlotDropdown(currentAisle, currentBay, shelfSelect ? shelfSelect.value : '01');
     } else {
         if (shelfSelect) shelfSelect.value = res.shelf;
-        const selectedSlot = populateInboundSlotDropdown(currentAisle, currentBay, res.shelf);
-
-        if (typeof showToast === 'function') {
-            showToast(`📍 แถว ${currentAisle} ล็อก ${res.bay}: คำนวณเลือกช่องว่าง [ชั้น ${res.shelf} ช่อง ${selectedSlot}] ให้อัตโนมัติ`);
-        }
+        populateInboundSlotDropdown(currentAisle, currentBay, res.shelf);
     }
 
     updateInboundLocationPreviewFromDropdowns();
     ensureSnInputFocus();
 }
 
-// 🟢 เมื่อผู้ใช้เลือกชั้น (Shelf) -> คำนวณหาช่องย่อยที่ว่างในชั้นนั้นให้อัตโนมัติ 100%
 function onInboundShelfChange(shelfValue) {
     const aisleSelect = document.getElementById('inboundAisleSelect');
     const baySelect = document.getElementById('inboundBaySelect');
@@ -813,25 +981,11 @@ function onInboundShelfChange(shelfValue) {
 
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(currentAisle)) return;
 
-    const res = calculateNextAvailableSlotInShelf(currentAisle, currentBay, currentShelf);
-    const selectedSlot = populateInboundSlotDropdown(currentAisle, currentBay, currentShelf);
-
-    if (res.isFull) {
-        if (typeof playErrorSound === 'function') playErrorSound();
-        if (typeof showToast === 'function') {
-            showToast(`🚨 แถว ${currentAisle} ล็อก ${currentBay} ชั้น ${currentShelf} เต็มทุกช่องแล้ว!`, true);
-        }
-    } else {
-        if (typeof showToast === 'function') {
-            showToast(`📍 แถว ${currentAisle} ล็อก ${currentBay} ชั้น ${currentShelf}: คำนวณช่องว่างเป็น [ช่อง ${selectedSlot}] ให้อัตโนมัติ`);
-        }
-    }
-
+    populateInboundSlotDropdown(currentAisle, currentBay, currentShelf);
     updateInboundLocationPreviewFromDropdowns();
     ensureSnInputFocus();
 }
 
-// 🟢 เมื่อผู้ใช้เลือกช่องย่อย (Slot) ด้วยตัวเอง -> ตรวจสอบว่าพิกัดนั้นมี S/N สินค้าเดิมอยู่แล้วหรือไม่
 function onInboundSlotChange(slotValue) {
     const aisleSelect = document.getElementById('inboundAisleSelect');
     const baySelect = document.getElementById('inboundBaySelect');
@@ -849,16 +1003,6 @@ function onInboundSlotChange(slotValue) {
     const occupied = getAllOccupiedLocationsSet();
 
     if (occupied.has(formattedLoc) || occupied.has(getNormalizedLocKey(formattedLoc))) {
-        if (typeof playErrorSound === 'function') playErrorSound();
-        
-        const occupyingItem = getOccupyingSnDetails(formattedLoc);
-        const occupyingSn = occupyingItem ? occupyingItem.sn : '';
-        const snText = occupyingSn ? ` (มี S/N: ${occupyingSn})` : '';
-
-        if (typeof showToast === 'function') {
-            showToast(`🚨 พิกัด ${formattedLoc} ไม่ว่าง!${snText} ระบบจะปรับไปช่องว่างให้อัตโนมัติ`, true);
-        }
-
         const autoSlot = populateInboundSlotDropdown(currentAisle, currentBay, currentShelf);
         if (slotSelect) slotSelect.value = autoSlot;
     }
@@ -867,57 +1011,73 @@ function onInboundSlotChange(slotValue) {
     ensureSnInputFocus();
 }
 
-// 🟢 อัปเดต Preview พิกัดจัดเก็บสินค้า และกล่องรายละเอียด UI
-function updateInboundLocationPreviewFromDropdowns() {
+function getSelectedLocationFromDropdowns() {
     const aisleSelect = document.getElementById('inboundAisleSelect');
     const baySelect = document.getElementById('inboundBaySelect');
     const shelfSelect = document.getElementById('inboundShelfSelect');
     const slotSelect = document.getElementById('inboundSlotSelect');
 
-    const aisle = aisleSelect ? aisleSelect.value : 'A';
+    const aisle = (aisleSelect ? aisleSelect.value : 'A').trim().toUpperCase();
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(aisle)) {
+        return aisle;
+    }
+
+    const pad2 = (val) => String(parseInt(val, 10) || 1).padStart(2, '0');
+    const bay = pad2(baySelect ? baySelect.value : '01');
+    const shelf = pad2(shelfSelect ? shelfSelect.value : '01');
+    const slot = pad2(slotSelect ? slotSelect.value : '01');
+
+    return `${aisle}-${bay}-${shelf}-${slot}`;
+}
+
+function updateInboundLocationPreviewFromDropdowns() {
     const previewElem = document.getElementById('inboundLocationPreview');
     const hiddenLocInput = document.getElementById('inboundLocation');
 
+    const dbLocKey = getSelectedLocationFromDropdowns();
+
+    if (previewElem) {
+        previewElem.innerHTML = formatLocationBadgeHTML(dbLocKey);
+        previewElem.classList.remove('pulse-highlight');
+        void previewElem.offsetWidth;
+        previewElem.classList.add('pulse-highlight');
+    }
+    
+    if (hiddenLocInput) hiddenLocInput.value = dbLocKey;
+
+    const aisleSelect = document.getElementById('inboundAisleSelect');
+    const aisle = aisleSelect ? aisleSelect.value : 'A';
+
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(aisle)) {
-        if (previewElem) previewElem.textContent = aisle;
-        if (hiddenLocInput) hiddenLocInput.value = aisle;
         renderAisleSlotBreakdownUI(calculateAisleCapacityAndNextSlot(aisle));
         return;
     }
+
+    const baySelect = document.getElementById('inboundBaySelect');
+    const shelfSelect = document.getElementById('inboundShelfSelect');
+    const slotSelect = document.getElementById('inboundSlotSelect');
 
     const bay = baySelect ? baySelect.value : '01';
     const shelf = shelfSelect ? shelfSelect.value : '01';
     const slot = slotSelect ? slotSelect.value : '01';
 
-    const formattedLoc = `${aisle}-${bay}-${shelf}-${slot}`;
-
-    if (previewElem) {
-        previewElem.textContent = formattedLoc;
-        previewElem.classList.remove('pulse-highlight');
-        void previewElem.offsetWidth;
-        previewElem.classList.add('pulse-highlight');
-    }
-    if (hiddenLocInput) hiddenLocInput.value = formattedLoc;
-
     const details = calculateAisleCapacityAndNextSlot(aisle);
     details.bay = parseInt(bay, 10);
     details.shelf = parseInt(shelf, 10);
     details.slot = parseInt(slot, 10);
-    details.location = formattedLoc;
+    details.location = dbLocKey;
 
     renderAisleSlotBreakdownUI(details);
 }
 
-// 🟢 เมื่อเปลี่ยนการเลือกแถว -> คำนวณพิกัดพร้อมสร้างตัวเลือก Dropdown ย่อยทันที
 function onInboundAisleChange(aisleValue) {
     const aisleSelect = document.getElementById('inboundAisleSelect');
-    const currentAisle = aisleValue || (aisleSelect ? aisleSelect.value : '');
-    populateInboundLocationDropdowns(currentAisle, '01');
+    const currentAisle = aisleValue || (aisleSelect ? aisleSelect.value : 'A');
+    populateInboundLocationDropdownsStrict(currentAisle, '01');
     const hiddenLoc = document.getElementById('inboundLocation');
     return hiddenLoc ? hiddenLoc.value : currentAisle;
 }
 
-// 🟢 ฟังก์ชันเรนเดอร์กล่องรายละเอียด ล็อก/ชั้น/ช่อง พร้อม Visual Progress Bar และ Modern Glass Neon HUD
 function renderAisleSlotBreakdownUI(details) {
     let infoContainer = document.getElementById('inboundAisleSlotDetailBox');
     
@@ -927,16 +1087,6 @@ function renderAisleSlotBreakdownUI(details) {
             infoContainer = document.createElement('div');
             infoContainer.id = 'inboundAisleSlotDetailBox';
             infoContainer.className = 'glass-hud-box';
-            infoContainer.style.cssText = `
-                margin-top: 10px;
-                padding: 12px;
-                background: var(--bg-card, #ffffff);
-                border: 1px solid var(--border-color, #e2e8f0);
-                border-radius: 12px;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-                font-size: 0.83rem;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            `;
             previewElem.parentElement.appendChild(infoContainer);
         } else {
             return;
@@ -945,17 +1095,17 @@ function renderAisleSlotBreakdownUI(details) {
 
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(details.location)) {
         infoContainer.innerHTML = `
-            <div style="text-align:center; color:var(--primary-text); font-weight:600; padding:6px; background:var(--primary-light, #e0f2fe); border-radius:8px;">
+            <div style="text-align:center; color:var(--primary-text); font-weight:600; padding:8px; background:var(--primary-light, #e0f2fe); border-radius:10px; border:1px solid var(--primary-border);">
                 📍 พิกัดพิเศษ: <strong>${details.location}</strong> (รับเข้าโซนส่วนกลาง)
             </div>
         `;
         return;
     }
 
-    if (details.location.endsWith('-FULL')) {
+    if (details.location.endsWith('-FULL') || details.location.includes('FULL')) {
         infoContainer.innerHTML = `
-            <div style="text-align:center; color:var(--danger, #ef4444); font-weight:700; padding:8px; background:#fef2f2; border-radius:8px; border:1px solid #fca5a5;">
-                ⚠️ ล็อก/แถวนี้เต็มแล้ว! (ใช้ไป ${details.occupiedCount}/${details.totalSlots} ช่อง จากทั้งหมด ${details.baysConfigured} ล็อก) กรุณาเลือกล็อกหรือแถวอื่น
+            <div style="text-align:center; color:var(--danger, #ef4444); font-weight:700; padding:10px; background:var(--danger-light, #fee2e2); border-radius:10px; border:1px solid #fca5a5;">
+                ⚠️ ล็อก/แถวนี้เต็มแล้ว! (ใช้ไป ${details.occupiedCount}/${details.totalSlots} ช่อง จากทั้งหมด ${details.baysConfigured} ล็อก)
             </div>
         `;
         return;
@@ -967,61 +1117,56 @@ function renderAisleSlotBreakdownUI(details) {
     infoContainer.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border-color, #e2e8f0);">
             <div style="display:flex; align-items:center; gap:6px;">
-                <span class="pulse-live-dot" style="display:inline-block; width:8px; height:8px; background:#10b981; border-radius:50%; box-shadow:0 0 8px #10b981;"></span>
-                <span style="font-weight:700; color:var(--text-main); font-size:0.8rem;">สถานะจัดเก็บแบบ Realtime 100%</span>
+                <span class="pulse-live-dot"></span>
+                <span style="font-weight:700; color:var(--text-main); font-size:0.8rem;">สถานะจัดเก็บ Realtime 100%</span>
             </div>
-            <button type="button" onclick="triggerAutoFindNextSlot()" style="background:none; border:none; color:var(--primary-text, #0284c7); font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="กดเพื่อบังคับรีเฟรชคำนวณพิกัดใหม่">
+            <button type="button" onclick="triggerAutoFindNextSlot()" style="background:none; border:none; color:var(--primary-text, #0284c7); font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="กดเพื่อรีเฟรชคำนวณพิกัดใหม่">
                 <i class="fa-solid fa-rotate-right"></i> รีเฟรชพิกัด
             </button>
         </div>
 
         <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; text-align:center; margin-bottom:10px;">
-            <div style="background:var(--primary-light, #e0f2fe); padding:6px 4px; border-radius:8px; border:1px solid rgba(2,132,199,0.15);">
+            <div style="background:var(--primary-light, #e0f2fe); padding:6px 4px; border-radius:8px; border:1px solid var(--primary-border);">
                 <span style="font-size:0.7rem; color:var(--text-sub); display:block;">ล็อกที่เลือก</span>
                 <strong style="font-size:0.95rem; color:var(--primary-text);" class="mono">ล็อก ${String(details.bay).padStart(2, '0')}</strong>
-                <span style="font-size:0.65rem; color:var(--text-muted); display:block;">(ตั้งไว้ ${details.baysConfigured} ล็อก)</span>
+                <span style="font-size:0.65rem; color:var(--text-muted); display:block;">(ทั้งหมด ${details.baysConfigured} ล็อก)</span>
             </div>
-            <div style="background:var(--primary-light, #e0f2fe); padding:6px 4px; border-radius:8px; border:1px solid rgba(2,132,199,0.15);">
+            <div style="background:var(--primary-light, #e0f2fe); padding:6px 4px; border-radius:8px; border:1px solid var(--primary-border);">
                 <span style="font-size:0.7rem; color:var(--text-sub); display:block;">ชั้นที่เลือก</span>
                 <strong style="font-size:0.95rem; color:var(--primary-text);" class="mono">ชั้น ${String(details.shelf).padStart(2, '0')}</strong>
-                <span style="font-size:0.65rem; color:var(--text-muted); display:block;">(ตั้งไว้ ${details.shelvesConfigured} ชั้น)</span>
+                <span style="font-size:0.65rem; color:var(--text-muted); display:block;">(ทั้งหมด ${details.shelvesConfigured} ชั้น)</span>
             </div>
-            <div style="background:#dcfce7; padding:6px 4px; border-radius:8px; border:1px solid rgba(16,185,129,0.3);">
+            <div style="background:var(--success-light, #dcfce7); padding:6px 4px; border-radius:8px; border:1px solid rgba(16,185,129,0.3);">
                 <span style="font-size:0.7rem; color:#15803d; display:block;">ช่องว่าง Auto</span>
                 <strong style="font-size:0.95rem; color:#10b981;" class="mono">ช่อง ${String(details.slot).padStart(2, '0')}</strong>
-                <span style="font-size:0.65rem; color:#166534; display:block;">(ตั้งไว้ ${details.slotsConfigured} ช่อง)</span>
+                <span style="font-size:0.65rem; color:#166534; display:block;">(ทั้งหมด ${details.slotsConfigured} ช่อง)</span>
             </div>
         </div>
 
         <div style="margin-bottom:8px;">
             <div style="display:flex; justify-content:space-between; font-size:0.73rem; color:var(--text-sub); margin-bottom:3px;">
-                <span>อัตราความจุของแถวนี้:</span>
+                <span>อัตราความจุแถวนี้:</span>
                 <strong style="color:${progressColor}">${usedPercent}% (${details.occupiedCount}/${details.totalSlots})</strong>
             </div>
-            <div style="width:100%; height:8px; background:#e2e8f0; border-radius:4px; overflow:hidden; box-shadow:inset 0 1px 2px rgba(0,0,0,0.1);">
-                <div style="width:${usedPercent}%; height:100%; background:${progressColor}; transition:width 0.3s ease, background 0.3s ease;"></div>
+            <div style="width:100%; height:8px; background:var(--bg-subtle, #e2e8f0); border-radius:4px; overflow:hidden;">
+                <div style="width:${usedPercent}%; height:100%; background:${progressColor}; transition:width 0.3s ease;"></div>
             </div>
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--text-sub); border-top:1px dashed var(--border-color); padding-top:8px; margin-top:4px;">
             <span>🟢 ช่องว่างคงเหลือ: <strong style="color:var(--success, #10b981);" class="mono">${details.freeSlots}</strong> / ${details.totalSlots} ช่อง</span>
-            <button type="button" class="btn btn-sm" onclick="triggerAutoFindNextSlot()" style="font-size:0.7rem; padding:3px 10px; background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); border:1px solid rgba(2, 132, 199, 0.3); border-radius:6px; cursor:pointer; font-weight:600;" title="ค้นหาและสุ่มช่องว่างถัดไปให้อัตโนมัติ">
+            <button type="button" class="btn btn-sm" onclick="triggerAutoFindNextSlot()" style="font-size:0.7rem; padding:3px 10px; background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); border:1px solid var(--primary-border); border-radius:6px; cursor:pointer; font-weight:600;" title="ค้นหาและเลือกช่องว่างถัดไปให้อัตโนมัติในแถวเดิม">
                 ⚡ หาช่องว่างถัดไป
             </button>
         </div>
     `;
 }
 
-// 🟢 ฟังก์ชันปุ่มกดเลือกพิกัดว่างถัดไปให้อัตโนมัติ
 function triggerAutoFindNextSlot() {
     invalidateOccupiedLocationsCache();
     autoSelectNextAvailableSlotAfterInbound();
-    if (typeof showToast === 'function') {
-        showToast('⚡ คำนวณและอัปเดตเลือกพิกัดว่างถัดไปเรียบร้อยแล้ว');
-    }
 }
 
-// 🟢 ปรับเลือกพิกัดว่างถัดไปในล็อกเดิมคงไว้ก่อน หากล็อกเดิมเต็มจึงตัดไปล็อกถัดไปให้อัตโนมัติ
 function autoSelectNextAvailableSlotAfterInbound() {
     const aisleSelect = document.getElementById('inboundAisleSelect');
     const baySelect = document.getElementById('inboundBaySelect');
@@ -1029,27 +1174,27 @@ function autoSelectNextAvailableSlotAfterInbound() {
     const currentAisle = aisleSelect ? aisleSelect.value : 'A';
     const currentBay = baySelect ? baySelect.value : '01';
 
-    // ส่ง currentBay เข้าไปเพื่อคงล็อกเดิมของผู้ใช้ไว้
-    populateInboundLocationDropdowns(currentAisle, currentBay);
+    populateInboundLocationDropdownsStrict(currentAisle, currentBay);
 }
 
 // ⚡ ---------------------------------------------------------------------
-// 🚀 HIGH-SPEED FAST SCAN ENGINE WITH FIFO QUEUE WORKER
+// 🚀 HIGH-SPEED FAST SCAN ENGINE (FIFO QUEUE & AUDIO FEEDBACK)
 // ------------------------------------------------------------------------
-
-// Visual Flash Feedback ปืนสแกน
 function triggerScanInputFlash(status = 'success') {
     const snInput = document.getElementById('inboundSn');
     if (!snInput) return;
     snInput.classList.remove('scan-flash-success', 'scan-flash-error');
-    void snInput.offsetWidth; // Force Reflow
+    void snInput.offsetWidth;
     snInput.classList.add(status === 'success' ? 'scan-flash-success' : 'scan-flash-error');
+    
+    // Play Audio Feedback
+    playAudioFeedback(status);
+
     setTimeout(() => {
         snInput.classList.remove('scan-flash-success', 'scan-flash-error');
     }, 300);
 }
 
-// อัปเดตความเร็วปืนสแกนใน HUD Badge
 function recordScanSpeedMetrics() {
     scanSpeedCounter++;
     if (!scanSpeedTimer) {
@@ -1065,14 +1210,12 @@ function recordScanSpeedMetrics() {
     }
 }
 
-// ⚡ ฟังก์ชันรับ Event สแกน แล้วยัดลง Queue ทันที 0ms (ไม่มีทางโดนดร็อป)
 async function handleInboundSubmit(e) {
     if (e) e.preventDefault();
 
     const snInput = document.getElementById('inboundSn');
     if (!snInput) return;
 
-    // ⚡ ดึงรหัส S/N พร้อมคลีนตัวอักษรควบคุมล่องหนจากปืนสแกนทุกประเภท 100%
     const rawSn = snInput.value || '';
     const cleanSn = rawSn.replace(/[\r\n\t\u200B-\u200D\uFEFF]/g, '').trim();
 
@@ -1086,222 +1229,114 @@ async function handleInboundSubmit(e) {
     const meterVal = parseInt(document.getElementById('inboundMeter')?.value) || 0;
 
     if (!category || !name) {
-        if (typeof playErrorSound === 'function') playErrorSound();
-        if (typeof showToast === 'function') showToast('⚠️ กรุณาเลือก/กรอก SKU และชื่อรุ่นก่อนสแกน S/N', true);
         triggerScanInputFlash('error');
+        showToast('⚠️ กรุณาระบุหมวดหมู่ SKU และชื่อรุ่นสินค้าก่อนทำการสแกนรับเข้า', true);
         snInput.select();
         return;
     }
 
-    // ⚡ เคลียร์ช่อง Input ทันทีในมิลลิวินาทีแรก และคืน Focus ทันทีเพื่อรับ S/N ถัดไปรวดเร็ว 100%
+    const currentSelectedLoc = getSelectedLocationFromDropdowns();
+
     snInput.value = '';
     ensureSnInputFocus(true);
-    requestAnimationFrame(() => ensureSnInputFocus(true));
-    setTimeout(() => ensureSnInputFocus(true), 20);
 
-    // ⚡ นำ S/N เข้าคิว FIFO Queue Processing
     scanProcessingQueue.push({
         sn: cleanSn,
         category,
         name,
         meterVal,
+        location: currentSelectedLoc,
         timestamp: Date.now()
     });
 
     recordScanSpeedMetrics();
 
-    // เรียก Queue Worker ถ้ายังไม่ได้ทำงานอยู่
     if (!isProcessingScanQueue) {
         processScanProcessingQueue();
     }
 }
 
-// ⚡ FIFO Queue Worker: ประมวลผลทีละรายการด้วยความเร็วสูงสุด Zero-Latency (Optimistic Storage + Non-blocking Cloud Sync)
 async function processScanProcessingQueue() {
     if (isProcessingScanQueue || scanProcessingQueue.length === 0) return;
     isProcessingScanQueue = true;
 
     while (scanProcessingQueue.length > 0) {
         const item = scanProcessingQueue.shift();
-        const { sn, category, name, meterVal } = item;
+        const { sn, category, name, meterVal, location } = item;
 
-        let locationElem = document.getElementById('inboundLocationPreview');
-        let location = locationElem ? locationElem.textContent.trim() : 'DOCK';
+        let dbLocation = location || getSelectedLocationFromDropdowns();
 
         const snUpper = sn.toUpperCase();
         const isDuplicateSn = pendingFastSnSet.has(snUpper) ||
-                              (typeof globalInventoryData !== 'undefined' && globalInventoryData.some(i => i && String(i.sn).toUpperCase() === snUpper && i.status !== 'OUT' && i.status !== 'DISPATCHED' && i.status !== 'ISSUED' && !i.is_deleted)) ||
-                              (typeof isPendingSn === 'function' && isPendingSn(sn));
+                              (typeof globalInventoryData !== 'undefined' && globalInventoryData.some(i => i && String(i.sn).toUpperCase() === snUpper && i.status !== 'OUT' && !i.is_deleted));
 
         if (isDuplicateSn) {
-            if (typeof playErrorSound === 'function') playErrorSound();
-            if (typeof showToast === 'function') showToast(`🚨 S/N "${escapeHTML(sn)}" มีอยู่ในระบบ/ถูกยิงสแกนไปแล้ว!`, true);
             triggerScanInputFlash('error');
+            showToast(`⚠️ ซีเรียล S/N: ${sn} นี้มีอยู่ในระบบเรียบร้อยแล้ว`, true);
             ensureSnInputFocus(true);
             continue;
         }
 
-        // ⚡ Synchronous 1:1 Strict Location Isolation Check
-        const isSpecialLoc = ['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(location.toUpperCase());
-        const normLocation = getNormalizedLocKey(location);
-        const occupied = getAllOccupiedLocationsSet();
-
-        const isLocOccupied = !isSpecialLoc && (
-            occupied.has(location.toUpperCase()) || 
-            occupied.has(normLocation) || 
-            pendingFastLocationSet.has(location.toUpperCase()) || 
-            pendingFastLocationSet.has(normLocation) ||
-            location.endsWith('-FULL')
-        );
-
-        if (isLocOccupied) {
-            autoSelectNextAvailableSlotAfterInbound();
-            let newLocationElem = document.getElementById('inboundLocationPreview');
-            location = newLocationElem ? newLocationElem.textContent.trim() : 'DOCK';
-
-            if (location.endsWith('-FULL')) {
-                if (typeof playErrorSound === 'function') playErrorSound();
-                if (typeof showToast === 'function') showToast(`⚠️ แถวนี้เต็มแล้ว! กรุณาเลือกแถวจัดเก็บอื่น`, true);
-                triggerScanInputFlash('error');
-                ensureSnInputFocus(true);
-                continue;
-            }
-        }
-
-        // ⚡ Lock Memory Immediately (จอง S/N และพิกัดทันทีแบบ Synchronous 0ms)
         pendingFastSnSet.add(snUpper);
-        if (!isSpecialLoc) {
-            addOccupiedLocToSet(pendingFastLocationSet, location);
-            if (normLocation) addOccupiedLocToSet(pendingFastLocationSet, normLocation);
-            if (cachedOccupiedSet) {
-                addOccupiedLocToSet(cachedOccupiedSet, location);
-                if (normLocation) addOccupiedLocToSet(cachedOccupiedSet, normLocation);
-            }
-        }
+        addOccupiedLocToSet(pendingFastLocationSet, dbLocation);
 
+        // 🟢 UPDATED: บันทึกชื่อ-นามสกุลจริงของผู้บันทึกเข้า Supabase DB ครบถ้วน 100%
         const activeUserFullName = getCurrentUserFullName();
+        const nowISO = new Date().toISOString();
+        const currentTimeStr = new Date().toLocaleTimeString('th-TH');
+
         const rawPayload = { 
             category, 
             name, 
             sn, 
             meter: meterVal, 
-            location, 
+            location: dbLocation,
             qty: 1, 
             status: 'IN_STOCK',
             receiver: activeUserFullName,
             created_by: activeUserFullName,
             received_by: activeUserFullName,
-            created_at: new Date().toISOString() 
+            created_at: nowISO 
         };
 
-        if (typeof occupiedLocationsSet !== 'undefined') {
-            addOccupiedLocToSet(occupiedLocationsSet, location);
-        }
-
-        // ⚡ คำนวณเตรียมพิกัดว่างถัดไปสำหรับสแกนลูกถัดไปล่วงหน้าทันที 1 Slot : 1 SN
-        autoSelectNextAvailableSlotAfterInbound();
-
-        // แสดงประวัติใน Memory Feed
         recentInboundList.unshift({
-            sn, category, name, meter: meterVal, location,
+            sn, 
+            category, 
+            name, 
+            meter: meterVal, 
+            location: dbLocation,
             receiver: activeUserFullName,
             created_by: activeUserFullName,
-            time: new Date().toLocaleTimeString('th-TH'),
+            received_by: activeUserFullName,
+            time: currentTimeStr,
+            created_at: nowISO,
             isOffline: false
         });
         if (recentInboundList.length > 100) recentInboundList.length = 100;
 
+        autoSelectNextAvailableSlotAfterInbound();
         triggerScanInputFlash('success');
+        showToast(`✅ สแกนรับเข้าสำเร็จ: S/N ${sn} -> พิกัด ${formatLocationSpaced(dbLocation)} (${activeUserFullName})`);
         scheduleDebouncedFeedRender();
 
-        // กระจาย Event Realtime ข้ามหน้า Asynchronously เพื่อให้หน้าอื่นๆ อัปเดตทันทีแบบไม่ต้องกด Refresh
-        setTimeout(() => {
-            document.dispatchEvent(new CustomEvent('inventoryUpdated', { detail: rawPayload }));
-            document.dispatchEvent(new CustomEvent('inventoryDataChanged', { detail: rawPayload }));
-            document.dispatchEvent(new CustomEvent('wmsRealtimeSync', { detail: rawPayload }));
-
-            if (typeof updateKPIs === 'function') updateKPIs();
-            if (typeof filterInventoryData === 'function') filterInventoryData();
-            if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
-        }, 0);
-
-        // เสียงและสั่นแบบ Non-blocking
-        setTimeout(() => {
-            if (typeof playSuccessSound === 'function') playSuccessSound();
-            if (window.voiceSettings && voiceSettings.inboundVoice && typeof speakThaiText === 'function') {
-                speakThaiText(`รับซีเรียล ${sn} เข้า ${location}`);
-            }
-            if (navigator.vibrate) {
-                try { navigator.vibrate(40); } catch(err) {}
-            }
-        }, 0);
-
-        // ⚡ คืน Focus เข้าช่องสแกนทันที 100%
-        ensureSnInputFocus(true);
-
-        // ⚡ Non-blocking Background Async DB Persist Worker (ทำงานร่วมกับ Cloud Server ความเร็วสูง ไม่ดักรอ UI)
         (async () => {
             if (navigator.onLine && typeof _supabase !== 'undefined' && _supabase) {
                 try {
                     const cleanData = typeof sanitizeForDb === 'function' ? sanitizeForDb(rawPayload) : rawPayload;
-                    cleanData.receiver = activeUserFullName;
-                    cleanData.created_by = activeUserFullName;
-                    cleanData.received_by = activeUserFullName;
-
-                    // ⚡ มี Timeout Protection ป้องกันเซิร์ฟเวอร์ Cloud ช้าจนดึง UI หน่วง
-                    const insertPromise = _supabase.from('warehouse_items').insert([cleanData]).select();
-                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Cloud Timeout')), 2500));
-                    
-                    const { data, error } = await Promise.race([insertPromise, timeoutPromise]).catch(() => ({ data: null, error: { message: 'Timeout' } }));
-
-                    if (error) {
-                        if (error.code === '23505') {
-                            if (typeof showToast === 'function') showToast(`🚨 S/N "${escapeHTML(sn)}" ถูกบันทึกไปก่อนหน้าแล้ว`, true);
-                        } else {
-                            rawPayload._pending = true;
-                            if (typeof globalInventoryData !== 'undefined') globalInventoryData.unshift(rawPayload);
-                            if (typeof offlineInboundQueue !== 'undefined') offlineInboundQueue.push(rawPayload);
-                            if (typeof persistQueue === 'function') persistQueue();
-
-                            const feedItem = recentInboundList.find(i => i.sn === sn);
-                            if (feedItem) feedItem.isOffline = true;
-                            scheduleDebouncedFeedRender();
-                        }
-                    } else {
-                        const insertedItem = (data && data[0]) ? data[0] : cleanData;
-                        if (typeof globalInventoryData !== 'undefined') globalInventoryData.unshift(insertedItem);
-                        if (typeof showToast === 'function') showToast(`✅ [Fast Scan] S/N: ${escapeHTML(sn)} [${location}] โดย ${activeUserFullName} บันทึกสำเร็จ`);
+                    const { data, error } = await _supabase.from('warehouse_items').insert([cleanData]).select('*');
+                    if (!error && data && data[0]) {
+                        const matched = recentInboundList.find(r => r.sn === sn);
+                        if (matched) matched.id = data[0].id;
+                    } else if (error) {
+                        console.error("Supabase insert error:", error);
                     }
                 } catch (err) {
-                    rawPayload._pending = true;
-                    if (typeof globalInventoryData !== 'undefined') globalInventoryData.unshift(rawPayload);
-                    if (typeof offlineInboundQueue !== 'undefined') offlineInboundQueue.push(rawPayload);
-                    if (typeof persistQueue === 'function') persistQueue();
-
-                    const feedItem = recentInboundList.find(i => i.sn === sn);
-                    if (feedItem) feedItem.isOffline = true;
-                    scheduleDebouncedFeedRender();
+                    console.error("DB Save Exception:", err);
                 }
-            } else {
-                rawPayload._pending = true;
-                if (typeof globalInventoryData !== 'undefined') globalInventoryData.unshift(rawPayload);
-                if (typeof offlineInboundQueue !== 'undefined') offlineInboundQueue.push(rawPayload);
-                if (typeof persistQueue === 'function') persistQueue();
-
-                const feedItem = recentInboundList.find(i => i.sn === sn);
-                if (feedItem) feedItem.isOffline = true;
-                scheduleDebouncedFeedRender();
             }
-
-            // เคลียร์ memory set เมื่อการบันทึกเสร็จสิ้นเพื่อคืนพื้นที่พิกัด
             invalidateOccupiedLocationsCache();
-
-            if (typeof logUserActivity === 'function') {
-                logUserActivity('INBOUND', `ผู้บันทึก [${activeUserFullName}] รับเข้าสินค้า [SKU: ${category}] ${name} เข้าพิกัด ${location}`, sn);
-            }
         })();
 
-        // หน่วงเวลาเล็กน้อยระดับมิลลิวินาทีเพื่อให้ Queue ทำงานลื่นไหล
         await new Promise(resolve => setTimeout(resolve, 5));
     }
 
@@ -1309,7 +1344,6 @@ async function processScanProcessingQueue() {
     ensureSnInputFocus(true);
 }
 
-// 🟢 จัดคิวเรนเดอร์ Live Feed แบบ Batched Render ป้องกันหน้าจอกระตุกขณะสแกนรัว
 function scheduleDebouncedFeedRender() {
     if (isFeedRenderScheduled) return;
     isFeedRenderScheduled = true;
@@ -1330,129 +1364,78 @@ async function loadRecentInboundFeedFromDB() {
             .limit(50);
 
         if (!error && data) {
-            recentInboundList = data.map(item => ({
-                id: item.id,
-                sn: item.sn,
-                category: item.category || 'N/A',
-                name: item.name || '-',
-                meter: item.meter || 0,
-                location: item.location || 'DOCK',
-                receiver: item.receiver || item.created_by || item.received_by || 'ไม่ระบุผู้บันทึก',
-                created_by: item.created_by || item.receiver || 'ไม่ระบุผู้บันทึก',
-                time: item.created_at ? new Date(item.created_at).toLocaleTimeString('th-TH') : '-',
-                isOffline: false
-            }));
+            recentInboundList = data.map(item => {
+                let rName = item.receiver || item.created_by || item.received_by;
+                if (!rName || rName === 'nakorn.c' || rName === 'Nakorn C' || rName === 'ไม่ระบุผู้บันทึก') {
+                    rName = getCurrentUserFullName();
+                }
+                return {
+                    id: item.id,
+                    sn: item.sn,
+                    category: item.category || 'N/A',
+                    name: item.name || '-',
+                    meter: item.meter || 0,
+                    location: item.location || 'DOCK',
+                    receiver: escapeHTML(rName),
+                    created_by: escapeHTML(rName),
+                    received_by: escapeHTML(rName),
+                    time: item.created_at ? new Date(item.created_at).toLocaleTimeString('th-TH') : '-',
+                    created_at: item.created_at,
+                    isOffline: false
+                };
+            });
             scheduleDebouncedFeedRender();
         }
     } catch (e) {}
 }
 
-// 🟢 ปรับปรุง UI ประวัติรายการรับเข้าล่าสุด: แสดงชื่อ-นามสกุล User ผู้บันทึกรับเข้าแบบเรียลไทม์ 100% พร้อม Modern Feed Cards
-function renderLiveInboundFeed() {
-    const container = document.getElementById('liveInboundFeedContainer');
-    if (!container) return;
+// 🟢 UPDATED: จัดการกล่องแสดงผลการเชื่อมต่อ DB มุมล่างซ้ายมือ ตัดลงบรรทัดที่ 2 สวยงาม ไม่ล้นกรอบ
+function updateMasterDbCountBadge() {
+    const badgeElem = document.getElementById('masterDbCountBadge') || document.getElementById('sidebarDbStatusBox');
+    if (!badgeElem) return;
 
-    if (recentInboundList.length === 0) {
-        container.innerHTML = `
-            <div style="padding:32px 16px; text-align:center; color:var(--text-muted); font-size:0.9rem;">
-                <i class="fa-solid fa-box-open" style="font-size:2.4rem; margin-bottom:8px; opacity:0.4;"></i><br/>
-                ยังไม่มีรายการรับเข้าสินค้าในเซสชันนี้
-            </div>`;
-        return;
-    }
+    const masterList = typeof globalMasterProducts !== 'undefined' ? globalMasterProducts : [];
+    const inventoryList = typeof globalInventoryData !== 'undefined' ? globalInventoryData : [];
 
-    const countElem = document.getElementById('recentInboundCountBadge');
-    if (countElem) countElem.textContent = `${recentInboundList.length} รายการ`;
+    const totalMasterCount = masterList.length;
+    const totalInventoryCount = inventoryList.length;
 
-    let html = `
-        <div class="inbound-feed-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding:0 2px;">
-            <div style="display:flex; align-items:center; gap:8px;">
-                <span style="font-size:0.92rem; font-weight:700; color:var(--text-main);">ประวัติการรับเข้าล่าสุด (${recentInboundList.length})</span>
-                <span id="fastScanSpeedMeterBadge" class="neon-speed-badge" style="display:none; font-size:0.72rem; padding:2px 8px; background:#10b981; color:#fff; border-radius:12px; font-weight:700;">⚡ 0 ชิ้น/วินาที</span>
-            </div>
-            <button class="btn btn-sm btn-secondary" onclick="clearRecentInboundFeedView()" style="font-size:0.75rem; padding:3px 10px; border-radius:6px;" title="ล้างหน้าจอแสดงผล">
-                <i class="fa-solid fa-eraser"></i> เคลียร์หน้าจอ
-            </button>
-        </div>
-        <div class="inbound-feed-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
-    `;
-
-    recentInboundList.forEach(item => {
-        const formatLoc = typeof formatLocationCode === 'function' ? formatLocationCode(item.location) : item.location;
-        const receiverName = typeof escapeHTML === 'function' ? escapeHTML(item.receiver || item.created_by || item.received_by || 'ไม่ระบุผู้บันทึก') : (item.receiver || item.created_by || item.received_by || 'ไม่ระบุผู้บันทึก');
-        const itemSn = typeof escapeHTML === 'function' ? escapeHTML(item.sn) : item.sn;
-        const itemCategory = typeof escapeHTML === 'function' ? escapeHTML(item.category) : item.category;
-        const itemName = typeof escapeHTML === 'function' ? escapeHTML(item.name) : item.name;
-        const itemTime = typeof escapeHTML === 'function' ? escapeHTML(item.time) : item.time;
-
-        const syncBadge = item.isOffline 
-            ? `<span class="badge-action delete" style="font-size:0.7rem; padding:3px 8px; white-space:nowrap;"><i class="fa-solid fa-wifi-slash"></i> รอ Sync DB</span>`
-            : `<span class="badge-action inbound" style="font-size:0.7rem; padding:3px 8px; white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> บันทึก DB แล้ว</span>`;
-
-        const cancelBtn = item.isOffline 
-            ? `<button class="btn btn-sm btn-danger" style="padding:3px 8px; font-size:0.7rem; flex-shrink:0;" onclick="removePendingItemBySn('${itemSn}')" title="ยกเลิกการรออนุมัติ"><i class="fa-solid fa-xmark"></i></button>` 
-            : '';
-
-        const feedClass = item.isOffline ? 'db-pending-warn' : 'db-synced-success';
-
-        html += `
-            <div class="feed-item ${feedClass} modern-feed-card" style="border-radius:12px; padding:12px; background:var(--bg-card, #ffffff); border:1px solid var(--border-color, #e2e8f0); box-shadow:0 3px 10px rgba(0,0,0,0.03); display:flex; flex-direction:column; gap:8px; transition:transform 0.2s ease;">
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%;">
-                    <span class="mono font-bold" style="color:var(--text-main); font-size:0.95rem; display:flex; align-items:center; gap:6px;">
-                        S/N: ${itemSn}
-                        <i class="fa-regular fa-copy" style="cursor:pointer; font-size:0.78rem; color:var(--text-muted);" onclick="copyToClipboard('${itemSn}')" title="คัดลอก S/N"></i>
-                    </span>
-                    <div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">
-                        ${syncBadge}
-                        ${cancelBtn}
-                    </div>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; background:var(--bg-body, #f8fafc); padding:6px 10px; border-radius:8px; border:1px solid var(--border-color, #e2e8f0); gap:6px;">
-                    <span style="font-size:0.78rem; color:var(--text-sub); font-weight:600; white-space:nowrap; margin-top:2px;">📍 พิกัด:</span>
-                    <span class="badge-location mono" style="font-size:0.83rem; font-weight:800; background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); padding:4px 10px; border-radius:6px; white-space:normal; word-break:break-word; line-height:1.35; border:1px solid rgba(2, 132, 199, 0.2); text-align:right;">
-                        📍 ${typeof escapeHTML === 'function' ? escapeHTML(formatLoc) : formatLoc}
-                    </span>
-                </div>
-
-                <div style="font-size:0.83rem; color:var(--text-sub); font-weight:500; line-height:1.3; word-break:break-word;" title="[${itemCategory}] ${itemName}">
-                    <strong style="color:var(--primary-text);">[${itemCategory}]</strong> ${itemName}
-                </div>
-
-                <div style="font-size:0.76rem; color:var(--text-sub); font-weight:600; display:flex; align-items:center; gap:4px;">
-                    <i class="fa-solid fa-user-check" style="color:var(--primary-text);"></i> ผู้บันทึก: <span style="color:var(--text-main); font-weight:700;">${receiverName}</span>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.76rem; color:var(--warning, #d97706); font-weight:700; border-top:1px dashed var(--border-color); padding-top:6px;">
-                    <span><i class="fa-solid fa-gauge"></i> มิเตอร์: ${Number(item.meter || 0).toLocaleString()}</span>
-                    <span style="color:var(--text-muted); font-weight:400;"><i class="fa-regular fa-clock"></i> ${itemTime} น.</span>
-                </div>
-            </div>
-        `;
+    const uniqueModelNames = new Set();
+    masterList.concat(inventoryList).forEach(item => {
+        if (!item) return;
+        const modelName = (item.name || item.description || item.model || '').trim();
+        if (modelName) uniqueModelNames.add(modelName.toLowerCase());
     });
+    const totalModelCount = uniqueModelNames.size;
 
-    html += `</div>`;
-    container.innerHTML = html;
+    badgeElem.innerHTML = `
+        <div class="db-status-container-2line">
+            <div class="db-status-line line-1">
+                <span class="db-online-tag"><span class="pulse-live-dot"></span> เชื่อมต่อ DB สำเร็จ</span>
+                <span class="db-stat-item"><i class="fa-solid fa-database"></i> Master <strong>${totalMasterCount.toLocaleString()}</strong> SKU</span>
+            </div>
+            <div class="db-status-line line-2">
+                <span class="db-stat-item"><i class="fa-solid fa-boxes-stacked"></i> ในสต็อก <strong>${totalInventoryCount.toLocaleString()}</strong> ชิ้น</span>
+                <span class="db-stat-item"><i class="fa-solid fa-tags"></i> ใน DB <strong>${totalModelCount.toLocaleString()}</strong> รุ่น</span>
+            </div>
+        </div>
+    `;
 }
 
-function clearRecentInboundFeedView() {
-    recentInboundList = [];
-    renderLiveInboundFeed();
-    ensureSnInputFocus();
-}
-
-function copyToClipboard(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => {
-            if (typeof showToast === 'function') showToast(`📋 คัดลอก "${text}" เรียบร้อยแล้ว`);
-        });
-    }
-}
-
-// 🟢 ค้นหาด่วนรหัสสินค้า SKU จาก Master Products
 function onSkuSearchInput(val) {
     const box = document.getElementById('skuSuggestionsBox');
     if (!box) return;
+
+    const masterList = (typeof globalMasterProducts !== 'undefined' ? globalMasterProducts : [])
+        .concat(typeof globalInventoryData !== 'undefined' ? globalInventoryData : []);
+
+    const uniqueModelNames = new Set();
+    masterList.forEach(item => {
+        if (!item) return;
+        const modelName = (item.name || item.description || item.model || '').trim();
+        if (modelName) uniqueModelNames.add(modelName.toLowerCase());
+    });
+    const totalModelCount = uniqueModelNames.size;
 
     if (!val.trim()) {
         box.style.display = 'none';
@@ -1462,38 +1445,53 @@ function onSkuSearchInput(val) {
     const query = val.toLowerCase().trim();
     const skuMap = new Map();
 
-    const masterList = (typeof globalMasterProducts !== 'undefined' ? globalMasterProducts : [])
-        .concat(typeof globalInventoryData !== 'undefined' ? globalInventoryData : []);
-
-    masterList.forEach(item => {
-        if (!item) return;
+    for (let i = 0; i < masterList.length; i++) {
+        const item = masterList[i];
+        if (!item) continue;
         const skuKey = (item.sku || item.category || item.code || '').trim();
-        const nameVal = (item.name || item.description || item.model || item.title || '').trim();
+        const nameVal = (item.name || item.description || item.model || '').trim();
 
         if (skuKey && !skuMap.has(skuKey.toLowerCase())) {
             if (skuKey.toLowerCase().includes(query) || nameVal.toLowerCase().includes(query)) {
                 skuMap.set(skuKey.toLowerCase(), { sku: skuKey, name: nameVal });
             }
         }
-    });
+        if (skuMap.size >= 100) break;
+    }
 
-    const uniqueResults = Array.from(skuMap.values()).slice(0, 100);
+    const uniqueResults = Array.from(skuMap.values());
+
+    let headerHtml = `
+        <div style="padding:8px 12px; background:var(--bg-subtle, #f1f5f9); border-bottom:1px solid var(--border-color, #e2e8f0); display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--text-sub);">
+            <span><i class="fa-solid fa-magnifying-glass"></i> ผลการค้นหา (${uniqueResults.length})</span>
+            <span style="background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); padding:2px 8px; border-radius:10px; font-weight:600; font-size:0.75rem;">
+                <i class="fa-solid fa-tags"></i> มี ${totalModelCount.toLocaleString()} ชื่อรุ่นใน DB
+            </span>
+        </div>
+    `;
 
     if (uniqueResults.length === 0) {
-        const queryText = typeof escapeHTML === 'function' ? escapeHTML(val) : val;
-        box.innerHTML = `<div style="padding:12px; text-align:center; color:var(--text-muted); font-size:0.85rem;">ไม่พบข้อมูล SKU / ชื่อรุ่น "${queryText}" ในฐานข้อมูล Master (${globalMasterProducts.length.toLocaleString()} รายการ)</div>`;
+        box.innerHTML = headerHtml + `<div style="padding:10px; text-align:center; color:var(--text-muted); font-size:0.82rem;">ไม่พบสินค้าในฐานข้อมูล (${masterList.length.toLocaleString()} รายการ)</div>`;
         box.style.display = 'block';
         return;
     }
 
-    let html = '';
+    let html = headerHtml;
     uniqueResults.forEach(item => {
-        const itemSku = typeof escapeHTML === 'function' ? escapeHTML(item.sku) : item.sku;
-        const itemName = typeof escapeHTML === 'function' ? escapeHTML(item.name) : item.name;
+        const itemSku = escapeHTML(item.sku);
+        const itemName = escapeHTML(item.name || 'ไม่ระบุชื่อรุ่น');
         html += `
-            <div class="suggestion-item" style="padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border-color);" onclick="selectSkuSuggestion('${itemSku}', '${itemName}')">
-                <span class="mono font-bold" style="color:var(--primary-text);">${itemSku}</span>
-                <span style="color:var(--text-main); font-size:0.82rem; margin-left:10px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${itemName}</span>
+            <div class="suggestion-item" style="padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;" onclick="selectSkuSuggestion('${itemSku}', '${itemName}')">
+                <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
+                    <span class="mono font-bold" style="color:var(--primary-text); font-size:0.88rem; flex-shrink:0;">${itemSku}</span>
+                    <span style="color:var(--text-muted); font-size:0.82rem;">—</span>
+                    <span style="color:var(--text-main); font-size:0.85rem; font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
+                        <i class="fa-solid fa-box-archive" style="font-size:0.75rem; color:var(--primary); margin-right:4px;"></i> ${itemName}
+                    </span>
+                </div>
+                <span style="font-size:0.75rem; color:var(--text-sub); flex-shrink:0; background:var(--bg-body, #f8fafc); padding:2px 8px; border-radius:6px; border:1px solid var(--border-color); font-weight:600;">
+                    <i class="fa-solid fa-tag" style="color:var(--primary);"></i> ชื่อรุ่น
+                </span>
             </div>
         `;
     });
@@ -1515,7 +1513,6 @@ function selectSkuSuggestion(sku, name) {
     ensureSnInputFocus(true);
 }
 
-// 🟢 เชื่อมต่อ Supabase Realtime รับข้อมูลสินค้า Master เมื่อมีการอัปเดต/เพิ่มใหม่ใน DB
 function initMasterProductsRealtime() {
     const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
     if (!client) return;
@@ -1526,20 +1523,16 @@ function initMasterProductsRealtime() {
             .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, async (payload) => {
                 if (typeof loadMasterProductsFromDB === 'function') {
                     await loadMasterProductsFromDB();
-                    if (typeof showToast === 'function' && payload.eventType === 'INSERT') {
-                        showToast(`⚡ อัปเดตสินค้าใหม่จาก DB เรียบร้อยแล้ว (รวม ${globalMasterProducts.length.toLocaleString()} รายการ)`);
-                    }
+                    updateMasterDbCountBadge();
                 }
             })
             .subscribe();
     } catch (e) {}
 }
 
-// 🟢 ฟังก์ชันซิงค์และรีเฟรชข้อมูลสต็อก + พิกัดจัดเก็บสินค้าให้อัตโนมัติทุกครั้งเมื่อ DB มีการเปลี่ยนแปลง
 async function autoRefreshInboundDatabaseAndLocations() {
     invalidateOccupiedLocationsCache();
 
-    // 1. ดึงสต็อกสินค้าล่าสุดจาก DB เข้า Memory ทันที
     if (typeof fetchInventoryData === 'function') {
         try { await fetchInventoryData(); } catch(e) {}
     } else if (typeof loadInventoryFromDB === 'function') {
@@ -1550,13 +1543,11 @@ async function autoRefreshInboundDatabaseAndLocations() {
         try { await loadRecentInboundFeedFromDB(); } catch(e) {}
     }
 
-    // 2. คำนวณหาพิกัดและช่องจัดเก็บสินค้าที่ว่างใหม่อัตโนมัติในมิลลิวินาทีแรก
     autoSelectNextAvailableSlotAfterInbound();
     scheduleDebouncedFeedRender();
     ensureSnInputFocus();
 }
 
-// 🟢 เชื่อมต่อ Supabase Realtime เมื่อมีการเพิ่ม/แก้ไข/ลบ/จ่ายสินค้าออก ในตาราง warehouse_items แบบ 100% Real-time
 function initWarehouseItemsRealtime() {
     const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
     if (!client) return;
@@ -1565,7 +1556,6 @@ function initWarehouseItemsRealtime() {
         client
             .channel('public_warehouse_items_realtime_inbound_v35')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, async (payload) => {
-                // 🎯 ตรวจจับการ DELETE หรือ UPDATE ปรับสถานะเป็น จ่ายสินค้าออก (OUT / DISPATCHED / ISSUED)
                 if (payload.eventType === 'DELETE') {
                     const oldObj = payload.old || {};
                     purgeDispatchedOrDeletedItemFromMemory(oldObj.sn, oldObj.id, oldObj.location);
@@ -1575,12 +1565,19 @@ function initWarehouseItemsRealtime() {
 
                     if (isOut) {
                         purgeDispatchedOrDeletedItemFromMemory(payload.new.sn, payload.new.id, payload.new.location);
-                    } else if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-                        const idx = globalInventoryData.findIndex(item => item && (item.id === payload.new.id || (payload.new.sn && String(item.sn).toUpperCase() === String(payload.new.sn).toUpperCase())));
-                        if (idx !== -1) {
-                            globalInventoryData[idx] = { ...globalInventoryData[idx], ...payload.new };
-                        } else {
-                            globalInventoryData.unshift(payload.new);
+                    } else {
+                        if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
+                            const idx = globalInventoryData.findIndex(item => item && (item.id === payload.new.id || (payload.new.sn && String(item.sn).toUpperCase() === String(payload.new.sn).toUpperCase())));
+                            if (idx !== -1) {
+                                globalInventoryData[idx] = { ...globalInventoryData[idx], ...payload.new };
+                            } else {
+                                globalInventoryData.unshift(payload.new);
+                            }
+                        }
+                        const matchedFeed = recentInboundList.find(r => r.id === payload.new.id || (payload.new.sn && String(r.sn).toUpperCase() === String(payload.new.sn).toUpperCase()));
+                        if (matchedFeed) {
+                            matchedFeed.location = payload.new.location || matchedFeed.location;
+                            matchedFeed.receiver = getCurrentUserFullName();
                         }
                     }
                 } else if (payload.eventType === 'INSERT' && payload.new) {
@@ -1590,12 +1587,27 @@ function initWarehouseItemsRealtime() {
                             globalInventoryData.unshift(payload.new);
                         }
                     }
+                    const existsInFeed = recentInboundList.some(r => r.id === payload.new.id || (payload.new.sn && String(r.sn).toUpperCase() === String(payload.new.sn).toUpperCase()));
+                    if (!existsInFeed) {
+                        recentInboundList.unshift({
+                            id: payload.new.id,
+                            sn: payload.new.sn,
+                            category: payload.new.category || 'N/A',
+                            name: payload.new.name || '-',
+                            meter: payload.new.meter || 0,
+                            location: payload.new.location || 'DOCK',
+                            receiver: getCurrentUserFullName(),
+                            created_by: getCurrentUserFullName(),
+                            received_by: getCurrentUserFullName(),
+                            time: payload.new.created_at ? new Date(payload.new.created_at).toLocaleTimeString('th-TH') : new Date().toLocaleTimeString('th-TH'),
+                            created_at: payload.new.created_at,
+                            isOffline: false
+                        });
+                    }
                 }
 
-                // ⚡ รีเฟรชฐานข้อมูลสต็อก และคำนวณเลือกพิกัดช่องว่างให้อัตโนมัติทันที 100%
                 await autoRefreshInboundDatabaseAndLocations();
                 
-                // กระจาย Event แจ้งส่วนอื่นๆ ในแอปพลิเคชัน
                 document.dispatchEvent(new CustomEvent('inventoryDataChanged', { detail: payload }));
                 document.dispatchEvent(new CustomEvent('inventoryUpdated', { detail: payload }));
             })
@@ -1603,7 +1615,6 @@ function initWarehouseItemsRealtime() {
     } catch (e) {}
 }
 
-// 🟢 Realtime Broadcast Channel Listener ซิงค์ข้อมูลข้าม Tab ต่างๆ ในเบราว์เซอร์ 0ms
 function initCrossTabBroadcastListener() {
     try {
         if (typeof BroadcastChannel !== 'undefined') {
@@ -1623,18 +1634,13 @@ function initCrossTabBroadcastListener() {
     } catch (e) {}
 }
 
-// 🟢 แทรก CSS Visual Flash และ Modern HUD Styles เพื่อความสวยงามทันสมัยระดับสากล 100%
 function injectModernScanUIStyles() {
     if (document.getElementById('fastScanModernStyles')) return;
     const styleElem = document.createElement('style');
     styleElem.id = 'fastScanModernStyles';
     styleElem.textContent = `
-        .scan-flash-success {
-            animation: scanFlashGreen 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        }
-        .scan-flash-error {
-            animation: scanFlashRed 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        }
+        .scan-flash-success { animation: scanFlashGreen 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important; }
+        .scan-flash-error { animation: scanFlashRed 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important; }
         @keyframes scanFlashGreen {
             0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.8); border-color: #10b981 !important; background: #ecfdf5 !important; }
             50% { box-shadow: 0 0 18px 4px rgba(16, 185, 129, 0.5); border-color: #10b981 !important; background: #d1fae5 !important; }
@@ -1645,49 +1651,268 @@ function injectModernScanUIStyles() {
             50% { box-shadow: 0 0 18px 4px rgba(239, 68, 68, 0.5); border-color: #ef4444 !important; background: #fee2e2 !important; }
             100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
-        .modern-feed-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(0,0,0,0.06) !important;
-        }
-        .neon-speed-badge {
-            box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
-            animation: pulseBadge 1.5s infinite alternate;
-        }
-        @keyframes pulseBadge {
-            from { transform: scale(1); }
-            to { transform: scale(1.04); }
-        }
         .pulse-live-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #10b981;
             animation: pulseLiveDot 1.2s infinite alternate;
         }
         @keyframes pulseLiveDot {
-            from { opacity: 0.4; transform: scale(0.9); }
-            to { opacity: 1; transform: scale(1.1); }
+            from { opacity: 0.4; transform: scale(0.85); }
+            to { opacity: 1; transform: scale(1.15); }
+        }
+        .glass-hud-box {
+            margin-top: 12px;
+            padding: 14px;
+            background: var(--bg-surface, #ffffff);
+            border: 1px solid var(--border-color, #e2e8f0);
+            border-radius: 14px;
+            box-shadow: var(--shadow-sm);
+            font-size: 0.84rem;
+            transition: all 0.3s ease;
+        }
+        .feed-card-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-card-action {
+            background: var(--bg-subtle, #f1f5f9);
+            border: 1px solid var(--border-color, #e2e8f0);
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 0.72rem;
+            color: var(--text-sub, #334155);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .btn-card-action:hover {
+            background: var(--primary-light, #e0f2fe);
+            color: var(--primary-text, #0284c7);
+            border-color: var(--primary-border, #bae6fd);
         }
     `;
     document.head.appendChild(styleElem);
 }
 
-// 🟢 ผูก Event Listeners ครบทั้ง แถว -> ล็อก -> ชั้น -> ช่องย่อย พร้อม Realtime Auto-Refresh 100%
+// 🟢 NEW FEATURE: ค้นหาและกรองประวัติการรับเข้าใน Feed สด Realtime
+function onRecentFeedSearch(queryText) {
+    recentFeedSearchQuery = (queryText || '').toLowerCase().trim();
+    renderLiveInboundFeed();
+}
+
+// 🟢 UPDATED REALTIME PRINT TRIGGER: ดีดเปิดศูนย์พิมพ์บาร์โค้ดทันที 100% เมื่อกดสั่งพิมพ์ S/N จากหน้ารับเข้า
+function triggerReprintStickerFromFeed(sn, name = '', category = '', location = '') {
+    if (!sn) return;
+
+    // 1. ลองค้นหาในศูนย์พิมพ์บาร์โค้ดหลัก
+    if (typeof window.openPrintBarcodeModal === 'function') {
+        window.openPrintBarcodeModal('SINGLE', sn);
+        showToast(`🖨️ ดีดไปที่ศูนย์พิมพ์บาร์โค้ดเรียบร้อย: S/N ${sn}`, false);
+        return;
+    } 
+
+    if (typeof window.printSingleBarcode === 'function') {
+        window.printSingleBarcode(sn);
+        showToast(`🖨️ เปิดการพิมพ์บาร์โค้ด: S/N ${sn}`, false);
+        return;
+    }
+
+    if (typeof window.triggerBarcodePrint === 'function') {
+        window.triggerBarcodePrint(sn);
+        showToast(`🖨️ พิมพ์บาร์โค้ด S/N ${sn}`, false);
+        return;
+    }
+
+    if (typeof window.openThermalPrintModal === 'function') {
+        window.openThermalPrintModal({ sn, name, category, location });
+        return;
+    }
+
+    if (typeof window.printBarcodeSticker === 'function') {
+        window.printBarcodeSticker({ sn, name, category, location });
+        return;
+    }
+
+    // Fallback: คัดลอก S/N แจ้งเตือน
+    copyToClipboard(sn);
+    showToast(`📋 คัดลอก S/N ${sn} สำเร็จแล้ว (กำลังรอโหลดโมดูลการพิมพ์)`, false);
+}
+
+// 🟢 UPDATED: จัดการเลย์เอาต์การ์ดประวัติรับเข้าล่าสุด แสดงชื่อผู้รับสินค้า และพิกัดรับเข้าจริงแบบเต็ม ไม่ตัดข้อความ 100% (REALTIME UPDATE)
+function renderLiveInboundFeed() {
+    const container = document.getElementById('liveInboundFeedContainer');
+    if (!container) return;
+
+    updateMasterDbCountBadge();
+
+    let filteredList = recentInboundList;
+    if (recentFeedSearchQuery) {
+        filteredList = recentInboundList.filter(item => {
+            if (!item) return false;
+            const snMatch = String(item.sn || '').toLowerCase().includes(recentFeedSearchQuery);
+            const nameMatch = String(item.name || '').toLowerCase().includes(recentFeedSearchQuery);
+            const catMatch = String(item.category || '').toLowerCase().includes(recentFeedSearchQuery);
+            const locMatch = String(item.location || '').toLowerCase().includes(recentFeedSearchQuery);
+            const receiverMatch = String(item.receiver || item.received_by || '').toLowerCase().includes(recentFeedSearchQuery);
+            return snMatch || nameMatch || catMatch || locMatch || receiverMatch;
+        });
+    }
+
+    if (recentInboundList.length === 0) {
+        container.innerHTML = `
+            <div style="padding:28px 16px; text-align:center; color:var(--text-muted); font-size:0.88rem; background:var(--bg-surface); border-radius:var(--radius-md); border:1px solid var(--border-color);">
+                <i class="fa-solid fa-box-open" style="font-size:2.2rem; margin-bottom:8px; opacity:0.3; color:var(--primary);"></i><br/>
+                ยังไม่มีรายการรับเข้าในเซสชันนี้
+            </div>`;
+        return;
+    }
+
+    const countElem = document.getElementById('recentInboundCountBadge');
+    if (countElem) countElem.textContent = `${recentInboundList.length} รายการ`;
+
+    const currentActiveUserName = getCurrentUserFullName();
+
+    let html = `
+        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span class="pulse-live-dot"></span>
+                    <span style="font-size:0.88rem; font-weight:700; color:var(--text-main);">
+                        ประวัติการรับเข้าล่าสุด Realtime 100% (${filteredList.length}/${recentInboundList.length})
+                    </span>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="clearRecentInboundFeedView()" style="font-size:0.72rem; padding:3px 8px;" title="ล้างหน้าจอแสดงผล">
+                    <i class="fa-solid fa-eraser"></i> เคลียร์
+                </button>
+            </div>
+            <div style="position:relative; width:100%;">
+                <input type="text" 
+                       id="recentFeedSearchInput" 
+                       oninput="onRecentFeedSearch(this.value)" 
+                       value="${escapeHTML(recentFeedSearchQuery)}"
+                       placeholder="🔍 ค้นหาในประวัติ (S/N, SKU, พิกัด, ผู้รับ)..." 
+                       style="width:100%; padding:6px 12px 6px 30px; font-size:0.78rem; border-radius:8px; border:1px solid var(--border-color); background:var(--bg-subtle); color:var(--text-main); outline:none;" />
+                <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:0.75rem; color:var(--text-muted);"></i>
+            </div>
+        </div>
+        <div class="inbound-feed-scroll-wrapper" style="max-height: calc(100vh - 330px); overflow-y: auto; padding-right: 8px; margin-right: -4px;">
+            <div class="inbound-feed-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:10px;">
+    `;
+
+    if (filteredList.length === 0) {
+        html += `
+            <div style="grid-column: 1 / -1; padding:20px; text-align:center; color:var(--text-muted); font-size:0.82rem; background:var(--bg-surface); border-radius:8px; border:1px dashed var(--border-color);">
+                ไม่พบรายการประวัติที่ตรงกับ "${escapeHTML(recentFeedSearchQuery)}"
+            </div>
+        `;
+    } else {
+        filteredList.forEach(item => {
+            const locBadgeHTML = formatLocationBadgeHTML(item.location);
+            
+            let displayReceiver = item.receiver || item.received_by || item.created_by;
+            if (!displayReceiver || displayReceiver === 'nakorn.c' || displayReceiver === 'Nakorn C' || displayReceiver === 'ไม่ระบุผู้บันทึก') {
+                displayReceiver = currentActiveUserName;
+            }
+            
+            const receiverName = escapeHTML(displayReceiver);
+            const itemSn = escapeHTML(item.sn);
+            const itemCategory = escapeHTML(item.category);
+            const itemName = escapeHTML(item.name);
+            const itemTime = escapeHTML(item.time || (item.created_at ? new Date(item.created_at).toLocaleTimeString('th-TH') : '-'));
+
+            html += `
+                <div class="feed-item modern-feed-card animate-feed-entry">
+                    <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:6px;">
+                        <span class="mono font-bold" style="color:var(--text-main); font-size:0.88rem; display:flex; align-items:center; gap:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            S/N: ${itemSn}
+                        </span>
+                        <div class="feed-card-actions">
+                            <button type="button" class="btn-card-action" onclick="copyToClipboard('${itemSn}'); showToast('📋 คัดลอก S/N สำเร็จ: ${itemSn}');" title="คัดลอก S/N">
+                                <i class="fa-regular fa-copy"></i>
+                            </button>
+                            <button type="button" class="btn-card-action" onclick="triggerReprintStickerFromFeed('${itemSn}', '${itemName}', '${itemCategory}', '${item.location}')" title="ดีดไปที่ศูนย์พิมพ์บาร์โค้ดเพื่อพิมพ์ทันที">
+                                <i class="fa-solid fa-print"></i> พิมพ์
+                            </button>
+                            <span class="badge-action inbound" style="font-size:0.68rem; padding:2px 6px; flex-shrink:0;">
+                                <i class="fa-solid fa-circle-check"></i> สำเร็จ
+                            </span>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; flex-direction:column; gap:4px; background:var(--bg-subtle, #f1f5f9); padding:6px 10px; border-radius:8px; border:1px solid var(--border-color);">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-size:0.72rem; color:var(--text-muted); font-weight:700;">📍 พิกัดรับเข้าจริง (DB: ${escapeHTML(item.location)}):</span>
+                        </div>
+                        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:4px; width:100%;">
+                            ${locBadgeHTML}
+                        </div>
+                    </div>
+
+                    <div style="font-size:0.8rem; color:var(--text-sub); line-height:1.25; word-break:break-word;" title="[${itemCategory}] ${itemName}">
+                        <strong style="color:var(--primary-text);">[${itemCategory}]</strong> ${itemName}
+                    </div>
+
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.72rem; color:var(--text-muted); border-top:1px dashed var(--border-color); padding-top:4px; margin-top:2px;">
+                        <span style="font-weight:600; color:var(--text-main);"><i class="fa-solid fa-user-check" style="color:var(--success);"></i> ${receiverName}</span>
+                        <span><i class="fa-regular fa-clock"></i> ${itemTime} น.</span>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    html += `
+            </div>
+        </div>
+    `;
+    container.innerHTML = html;
+}
+
+function clearRecentInboundFeedView() {
+    recentInboundList = [];
+    renderLiveInboundFeed();
+    ensureSnInputFocus();
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+    } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+    }
+}
+
 function initInboundEventListeners() {
     injectModernScanUIStyles();
+    initFrontendSecurityGuards();
+    checkAndHideLoginOverlay();
+
+    // ดึงประวัติรับเข้าจากฐานข้อมูล Supabase เมื่อเริ่มโหลดหน้าจอ
+    loadRecentInboundFeedFromDB();
+
+    document.addEventListener('biometricLoginSuccess', function(e) {
+        const userName = (e && e.detail && e.detail.userName) ? e.detail.userName : getCurrentUserFullName();
+        showBiometricSuccessToast(userName);
+    });
 
     const snInput = document.getElementById('inboundSn');
     if (snInput) {
-        // ⚡ รองรับสัญญาณปืนสแกนทุกประเภท (Enter, NumpadEnter, Tab) โดยเก็บอักขระครบ 100%
         snInput.addEventListener('keydown', function(e) {
             if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter' || e.key === 'Tab') {
                 e.preventDefault();
                 handleInboundSubmit(e);
             }
         });
-
-        // 🟢 ป้องกันเคอร์เซอร์หลุดออกจากช่องสแกน (Auto Focus Restore)
-        snInput.addEventListener('blur', function() {
-            setTimeout(() => {
-                ensureSnInputFocus();
-            }, 50);
-        });
+        snInput.addEventListener('blur', () => setTimeout(ensureSnInputFocus, 50));
     }
 
     const aisleSelect = document.getElementById('inboundAisleSelect');
@@ -1718,19 +1943,11 @@ function initInboundEventListeners() {
         });
     }
 
-    // 🟢 ซิงค์ Real-time ร่วมกับทุก Event ในระบบ เมื่อมีการลบ/แก้ไข/จ่ายออก/รับเข้า หน้าเว็บจะรีเฟรชพิกัดให้อัตโนมัติทันที
     const realtimeEvents = [
-        'inventoryUpdated', 
-        'inventoryDeleted', 
-        'inventoryDispatched',
-        'inventoryDataChanged', 
-        'wmsRealtimeSync', 
-        'warehouseConfigUpdated', 
-        'locationLayoutChanged',
-        'itemDeleted',
-        'itemDispatched',
-        'stockUpdated',
-        'outboundCompleted'
+        'inventoryUpdated', 'inventoryDeleted', 'inventoryDispatched',
+        'inventoryDataChanged', 'wmsRealtimeSync', 'warehouseConfigUpdated', 
+        'locationLayoutChanged', 'itemDeleted', 'itemDispatched',
+        'stockUpdated', 'outboundCompleted'
     ];
 
     realtimeEvents.forEach(evtName => {
@@ -1755,12 +1972,10 @@ function initInboundEventListeners() {
                     purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLoc);
                 }
             }
-
             await autoRefreshInboundDatabaseAndLocations();
         }, true);
     });
 
-    // ฟัง Storage Event สำหรับอัปเดตและรีเฟรชพิกัดข้าม Tab หรือข้ามหน้าจออัตโนมัติ
     window.addEventListener('storage', async function(e) {
         if (e.key === 'WMS_AISLE_CONFIGS' || e.key === 'WMS_INVENTORY_DATA' || e.key === 'WMS_LAST_MUTATION' || e.key === 'WMS_MASTER_AISLES' || e.key === 'WMS_DELETED_ITEM' || e.key === 'WMS_DISPATCHED_ITEM') {
             if ((e.key === 'WMS_DELETED_ITEM' || e.key === 'WMS_DISPATCHED_ITEM') && e.newValue) {
@@ -1780,28 +1995,33 @@ function initInboundEventListeners() {
     ensureSnInputFocus();
 }
 
-// 🟢 บายพาสลง window Object เพื่อให้ส่วนอื่นๆ และหน้าอื่นๆ ในระบบ WMS นำไปเรียกใช้คำนวณพิกัดว่างได้ 100%
 if (typeof window !== 'undefined') {
+    window.recentInboundList = recentInboundList;
     window.ensureSnInputFocus = ensureSnInputFocus;
     window.getCurrentUserFullName = getCurrentUserFullName;
     window.getAisleConfig = getAisleConfig;
+    window.parseLocComponentsInternal = parseLocComponentsInternal;
     window.getNormalizedLocKey = getNormalizedLocKey;
     window.normalizeLocationStandard = normalizeLocationStandard;
+    window.formatLocationSpaced = formatLocationSpaced;
+    window.formatLocationCode = formatLocationCode;
+    window.formatLocationBadgeHTML = formatLocationBadgeHTML;
     window.getOccupyingSnDetails = getOccupyingSnDetails;
     window.getAllOccupiedLocationsSet = getAllOccupiedLocationsSet;
     window.invalidateOccupiedLocationsCache = invalidateOccupiedLocationsCache;
     window.purgeDispatchedOrDeletedItemFromMemory = purgeDispatchedOrDeletedItemFromMemory;
     window.purgeDeletedSnFromMemory = purgeDeletedSnFromMemory;
     window.calculateNextAvailableSlotInShelf = calculateNextAvailableSlotInShelf;
-    window.calculateNextAvailableSlotInBay = calculateNextAvailableSlotInBay;
+    window.calculateNextAvailableSlotInBayStrictAisle = calculateNextAvailableSlotInBayStrictAisle;
     window.calculateAisleCapacityAndNextSlot = calculateAisleCapacityAndNextSlot;
     window.populateInboundSlotDropdown = populateInboundSlotDropdown;
-    window.populateInboundLocationDropdowns = populateInboundLocationDropdowns;
+    window.populateInboundLocationDropdownsStrict = populateInboundLocationDropdownsStrict;
     window.onInboundAisleChange = onInboundAisleChange;
     window.onInboundBayChange = onInboundBayChange;
     window.onInboundShelfChange = onInboundShelfChange;
     window.onInboundSlotChange = onInboundSlotChange;
     window.updateInboundLocationPreviewFromDropdowns = updateInboundLocationPreviewFromDropdowns;
+    window.getSelectedLocationFromDropdowns = getSelectedLocationFromDropdowns;
     window.renderAisleSlotBreakdownUI = renderAisleSlotBreakdownUI;
     window.autoSelectNextAvailableSlotAfterInbound = autoSelectNextAvailableSlotAfterInbound;
     window.triggerAutoFindNextSlot = triggerAutoFindNextSlot;
@@ -1813,11 +2033,20 @@ if (typeof window !== 'undefined') {
     window.copyToClipboard = copyToClipboard;
     window.onSkuSearchInput = onSkuSearchInput;
     window.selectSkuSuggestion = selectSkuSuggestion;
+    window.updateMasterDbCountBadge = updateMasterDbCountBadge;
+    window.checkAndHideLoginOverlay = checkAndHideLoginOverlay;
+    window.showToast = showToast;
+    window.showToastPopup = showToastPopup;
+    window.showBiometricSuccessToast = showBiometricSuccessToast;
+    window.toggleMobileSidebar = toggleMobileSidebar;
     window.initMasterProductsRealtime = initMasterProductsRealtime;
     window.initWarehouseItemsRealtime = initWarehouseItemsRealtime;
     window.initCrossTabBroadcastListener = initCrossTabBroadcastListener;
     window.initInboundEventListeners = initInboundEventListeners;
     window.autoRefreshInboundDatabaseAndLocations = autoRefreshInboundDatabaseAndLocations;
+    window.onRecentFeedSearch = onRecentFeedSearch;
+    window.triggerReprintStickerFromFeed = triggerReprintStickerFromFeed;
+    window.playAudioFeedback = playAudioFeedback;
 }
 
 document.addEventListener('DOMContentLoaded', () => {

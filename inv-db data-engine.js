@@ -1,24 +1,48 @@
 // =========================================================================
-// 📌 [ส่วนที่ 2] WMS DATABASE ENGINE, CACHE & CAPACITY CALCULATOR
+// 📌 [ส่วนที่ 2] WMS DATABASE ENGINE, CACHE & CAPACITY CALCULATOR (FULL VERSION)
 // =========================================================================
 
+// Safety Safeguards Fallback
+if (typeof window.escapeHTML !== 'function') {
+    window.escapeHTML = function(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    };
+}
+
+if (typeof window.normalizeLoc !== 'function') {
+    window.normalizeLoc = function(loc) {
+        if (!loc) return '';
+        return String(loc).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    };
+}
+
+if (typeof window.formatLocationCode !== 'function') {
+    window.formatLocationCode = function(loc) {
+        if (!loc) return 'DOCK';
+        return String(loc).toUpperCase().trim();
+    };
+}
+
 // Global State Variables
-window.globalInventoryData = [];
-window.globalMasterProducts = [];
-window.occupiedLocationsSet = new Set();
-window.selectedItemSnSet = new Set();
-window.currentFilteredItems = [];
-window.currentInventoryGroups = [];
-window.inventoryViewMode = 'grouped';
-window.currentDetailModalGroupKey = null;
-window.pendingBarcodePrintTarget = [];
+window.globalInventoryData = window.globalInventoryData || [];
+window.globalMasterProducts = window.globalMasterProducts || [];
+window.occupiedLocationsSet = window.occupiedLocationsSet || new Set();
+window.selectedItemSnSet = window.selectedItemSnSet || new Set();
+window.currentFilteredItems = window.currentFilteredItems || [];
+window.currentInventoryGroups = window.currentInventoryGroups || [];
+window.inventoryViewMode = window.inventoryViewMode || 'grouped';
+window.currentDetailModalGroupKey = window.currentDetailModalGroupKey || null;
+window.pendingBarcodePrintTarget = window.pendingBarcodePrintTarget || [];
 
 let realtimeSubChannel = null;
 let realtimeDebounceTimer = null;
 
-// -------------------------------------------------------------------------
-// 🔌 ตรวจสอบตัวเชื่อมต่อ Supabase Client
-// -------------------------------------------------------------------------
 function getSupabaseClient() {
     if (typeof _supabase !== 'undefined' && _supabase) return _supabase;
     if (typeof supabaseClient !== 'undefined' && supabaseClient) return supabaseClient;
@@ -39,9 +63,6 @@ function fetchWithTimeout(promise, ms = 6000) {
     ]);
 }
 
-// -------------------------------------------------------------------------
-// ⚡ ระบบ Real-time Subscription & Listener อัปเดตอัตโนมัติไม่ต้องกด รีโหลด
-// -------------------------------------------------------------------------
 function setupRealtimeSubscription() {
     const client = getSupabaseClient();
     if (client && typeof client.channel === 'function' && !realtimeSubChannel) {
@@ -61,7 +82,6 @@ function setupRealtimeSubscription() {
         }
     }
 
-    // ฟัง Event ภายในหน้าเว็บ / ข้ามแท็บ
     if (typeof window !== 'undefined') {
         window.removeEventListener('wms:data-updated', handleLocalDataChangeEvent);
         window.addEventListener('wms:data-updated', handleLocalDataChangeEvent);
@@ -78,7 +98,7 @@ function setupRealtimeSubscription() {
 }
 
 function handleLocalDataChangeEvent(event) {
-    handleRealtimeDataChange('LOCAL_EVENT', event.detail);
+    handleRealtimeDataChange('LOCAL_EVENT', event ? event.detail : null);
 }
 
 function handleRealtimeDataChange(source, data) {
@@ -92,28 +112,24 @@ async function refreshInventoryDataSilently() {
     try {
         const fetchedData = await fetchAllWarehouseItems();
         if (Array.isArray(fetchedData)) {
-            globalInventoryData = fetchedData;
-            globalInventoryData.forEach(item => {
+            window.globalInventoryData = fetchedData;
+            window.globalInventoryData.forEach(item => {
                 if (item.meter === undefined || item.meter === null || item.meter === '') item.meter = 0;
-                if (!item.received_by) item.received_by = item.received_by_fullname || item.full_name || item.username || item.created_by || item.user_id || 'ไม่ระบุ';
             });
 
             mergePendingIntoInventory();
             rebuildOccupiedSet();
-            populateStockFilterDropdowns();
-            filterInventoryData();
-            if (typeof updateKPIs === 'function') updateKPIs();
-            if (typeof refreshStockDetailModalIfActive === 'function') refreshStockDetailModalIfActive();
-            if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+            if (typeof window.populateStockFilterDropdowns === 'function') window.populateStockFilterDropdowns();
+            if (typeof window.filterInventoryData === 'function') window.filterInventoryData();
+            if (typeof window.updateKPIs === 'function') window.updateKPIs();
+            if (typeof window.refreshStockDetailModalIfActive === 'function') window.refreshStockDetailModalIfActive();
+            if (typeof window.refreshLocationVisualizerIfActive === 'function') window.refreshLocationVisualizerIfActive();
         }
     } catch (e) {
         console.warn('Silent refresh error:', e);
     }
 }
 
-// -------------------------------------------------------------------------
-// 🔔 ระบบแจ้งเตือนสถานะออฟไลน์แบบ Floating Notice (Modern UX)
-// -------------------------------------------------------------------------
 function updateDBConnectionStatus(isOnline, detailText = '') {
     const yellowPanels = document.querySelectorAll('#offlineYellowPanel, .offline-panel-left, .offline-banner-left, [class*="offline-yellow"]');
     yellowPanels.forEach(el => el.remove());
@@ -130,7 +146,6 @@ function updateDBConnectionStatus(isOnline, detailText = '') {
                 box-shadow: 0 10px 25px -5px rgba(245, 158, 11, 0.2);
                 display: flex; align-items: center; gap: 12px; max-width: 420px;
                 font-family: system-ui, -apple-system, sans-serif;
-                animation: fadeInModal 0.2s cubic-bezier(0.16, 1, 0.3, 1);
             `;
             document.body.appendChild(alertBox);
         }
@@ -144,11 +159,11 @@ function updateDBConnectionStatus(isOnline, detailText = '') {
             <div style="flex:1;">
                 <div style="font-weight:700; font-size:0.85rem; color:#92400e;">โหมดออฟไลน์ (Offline Mode)</div>
                 <div style="font-size:0.78rem; color:#78350f; margin-top:2px; line-height:1.35;">
-                    ระบบทำงานผ่าน Local Cache ${escapeHTML(detailText)} <br>
+                    ระบบทำงานผ่าน Local Cache ${window.escapeHTML(detailText)} <br>
                     <span style="font-weight:700; color:#b45309;">(รอบันทึกเข้า DB: ${pendingCount} รายการ)</span>
                 </div>
             </div>
-            <button type="button" onclick="document.getElementById('wmsOfflineFloatingAlert').style.display='none'" style="background:transparent; border:none; color:#a16207; font-size:1.1rem; cursor:pointer; padding:0 4px; opacity:0.7;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">&times;</button>
+            <button type="button" onclick="document.getElementById('wmsOfflineFloatingAlert').style.display='none'" style="background:transparent; border:none; color:#a16207; font-size:1.1rem; cursor:pointer; padding:0 4px; opacity:0.7;">&times;</button>
         `;
         alertBox.style.display = 'flex';
     } else {
@@ -156,12 +171,9 @@ function updateDBConnectionStatus(isOnline, detailText = '') {
     }
 }
 
-// -------------------------------------------------------------------------
-// 📍 Helpers สำหรับถอดรหัสพิกัดจัดเก็บ
-// -------------------------------------------------------------------------
 function extractAisleBayKey(locStr) {
     if (!locStr) return 'DOCK';
-    const clean = normalizeLoc(locStr);
+    const clean = window.normalizeLoc(locStr);
     const upper = String(clean || locStr).toUpperCase().trim();
     const parts = upper.split('-');
     return parts.length >= 2 ? `${parts[0]}-${parts[1]}` : upper;
@@ -169,7 +181,7 @@ function extractAisleBayKey(locStr) {
 
 function extractAisleKey(locStr) {
     if (!locStr) return 'DOCK';
-    const clean = normalizeLoc(locStr);
+    const clean = window.normalizeLoc(locStr);
     const upper = String(clean || locStr).toUpperCase().trim();
     const parts = upper.split('-');
     return parts[0] || upper;
@@ -177,10 +189,22 @@ function extractAisleKey(locStr) {
 
 function extractBayKey(locStr) {
     if (!locStr) return 'ALL';
-    const clean = normalizeLoc(locStr);
+    const clean = window.normalizeLoc(locStr);
     const upper = String(clean || locStr).toUpperCase().trim();
-    const parts = upper.split('-');
-    return parts.length >= 2 ? parts[1] : 'ALL';
+    if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(upper)) {
+        return 'ALL';
+    }
+    const parts = upper.split(/[\-\/_]+/);
+    if (parts.length >= 2) {
+        const rawBay = parts[1].replace(/^(BAY|B)/i, '').trim();
+        if (/^\d{1,3}$/.test(rawBay)) {
+            const bayNum = parseInt(rawBay, 10);
+            if (bayNum >= 1 && bayNum <= 999) {
+                return String(bayNum).padStart(2, '0');
+            }
+        }
+    }
+    return 'ALL';
 }
 
 function formatAisleBayLabel(abKey) {
@@ -227,7 +251,7 @@ function discoverAllDatabaseAisles() {
         }
     });
 
-    globalInventoryData.forEach(item => {
+    (window.globalInventoryData || []).forEach(item => {
         if (item && item.location) {
             const aisleKey = extractAisleKey(item.location);
             if (aisleKey && !aisleSet.has(aisleKey)) {
@@ -242,7 +266,15 @@ function discoverAllDatabaseAisles() {
 
 function formatReceiverFullName(item) {
     if (!item) return 'ไม่ระบุ';
-    return item.received_by_fullname || item.full_name || item.receiver_fullname || item.received_by || item.username || item.created_by || item.user_id || 'ไม่ระบุ';
+    return item.received_by_fullname || 
+           item.receiver_fullname || 
+           item.full_name || 
+           item.receiver || 
+           item.received_by || 
+           item.username || 
+           item.created_by || 
+           item.user_id || 
+           'ไม่ระบุ';
 }
 
 function getCurrentReceiverName() {
@@ -273,9 +305,6 @@ function getCurrentUserRole() {
     return 'user';
 }
 
-// -------------------------------------------------------------------------
-// 📐 คำนวณความจุและช่องว่างในคลังสินค้า
-// -------------------------------------------------------------------------
 function calculateAisleCapacityInfo(targetAisle) {
     const aisleKey = (targetAisle || '').toUpperCase().trim();
     if (!aisleKey || ['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(aisleKey)) {
@@ -286,7 +315,7 @@ function calculateAisleCapacityInfo(targetAisle) {
     const cfg = configs[aisleKey] || (typeof getAisleConfig === 'function' ? getAisleConfig(aisleKey) : { bays: 10, shelves: 1, slots: 10 });
     const totalSlots = (parseInt(cfg.bays || cfg.bay) || 10) * (parseInt(cfg.shelves || cfg.shelf) || 1) * (parseInt(cfg.slots || cfg.slot) || 10);
 
-    const occupied = globalInventoryData.filter(item => extractAisleKey(item.location) === aisleKey).length;
+    const occupied = (window.globalInventoryData || []).filter(item => extractAisleKey(item.location) === aisleKey).length;
     const available = Math.max(0, totalSlots - occupied);
     return { totalSlots, occupied, available, isUnlimited: false };
 }
@@ -307,9 +336,9 @@ function findFirstAvailableSlotInAisleBay(aisleKey, bayKey) {
         for (let sl = 1; sl <= maxSlots; sl++) {
             const slotStr = String(sl).padStart(2, '0');
             const candidateLoc = `${aisle}-${bay}-${sh}-${slotStr}`;
-            const normCandidate = normalizeLoc(candidateLoc);
+            const normCandidate = window.normalizeLoc(candidateLoc);
 
-            if (!occupiedLocationsSet.has(candidateLoc) && !occupiedLocationsSet.has(normCandidate)) {
+            if (!window.occupiedLocationsSet.has(candidateLoc) && !window.occupiedLocationsSet.has(normCandidate)) {
                 return { aisle, bay, shelf: String(sh), slot: slotStr, fullLocation: candidateLoc };
             }
         }
@@ -337,9 +366,9 @@ function calculateBatchRelocateTargetCoordinates(targetAisle, requiredCount) {
             for (let sl = 1; sl <= maxSlots; sl++) {
                 const slotStr = String(sl).padStart(2, '0');
                 const locCandidate = `${aisleKey}-${bayStr}-${sh}-${slotStr}`;
-                const normCandidate = normalizeLoc(locCandidate);
+                const normCandidate = window.normalizeLoc(locCandidate);
 
-                if (!occupiedLocationsSet.has(locCandidate) && !occupiedLocationsSet.has(normCandidate)) {
+                if (!window.occupiedLocationsSet.has(locCandidate) && !window.occupiedLocationsSet.has(normCandidate)) {
                     assignedLocations.push(locCandidate);
                     if (assignedLocations.length >= requiredCount) return assignedLocations;
                 }
@@ -352,9 +381,6 @@ function calculateBatchRelocateTargetCoordinates(targetAisle, requiredCount) {
     return assignedLocations;
 }
 
-// -------------------------------------------------------------------------
-// ⚡ ระบบดึงข้อมูลแบบ Instant Cache-First + Async Background Sync
-// -------------------------------------------------------------------------
 function showTableLoadingState() {
     const tbody = document.getElementById('inventoryTableBody');
     if (tbody) {
@@ -431,7 +457,7 @@ async function loadMasterProductsFromDB() {
         if (!navigator.onLine) {
             const cachedMaster = localStorage.getItem('WMS_MASTER_PRODUCTS_CACHE');
             if (cachedMaster) {
-                try { globalMasterProducts = JSON.parse(cachedMaster); } catch(err) {}
+                try { window.globalMasterProducts = JSON.parse(cachedMaster); } catch(err) {}
             }
             updateMasterProductsStatUI();
             return;
@@ -480,12 +506,12 @@ async function loadMasterProductsFromDB() {
         }
 
         if (allProducts.length > 0) {
-            globalMasterProducts = allProducts;
+            window.globalMasterProducts = allProducts;
             try { localStorage.setItem('WMS_MASTER_PRODUCTS_CACHE', JSON.stringify(allProducts)); } catch (quotaErr) {}
         } else {
             const cachedMaster = localStorage.getItem('WMS_MASTER_PRODUCTS_CACHE');
             if (cachedMaster) {
-                try { globalMasterProducts = JSON.parse(cachedMaster); } catch(err) {}
+                try { window.globalMasterProducts = JSON.parse(cachedMaster); } catch(err) {}
             }
         }
 
@@ -493,7 +519,7 @@ async function loadMasterProductsFromDB() {
     } catch(e) {
         const cachedMaster = localStorage.getItem('WMS_MASTER_PRODUCTS_CACHE');
         if (cachedMaster) {
-            try { globalMasterProducts = JSON.parse(cachedMaster); } catch(err) {}
+            try { window.globalMasterProducts = JSON.parse(cachedMaster); } catch(err) {}
         }
         updateMasterProductsStatUI();
     }
@@ -502,14 +528,14 @@ async function loadMasterProductsFromDB() {
 function updateMasterProductsStatUI() {
     const statElem = document.getElementById('inboundMasterProductsStatText');
     if (statElem) {
-        const count = globalMasterProducts.length;
+        const count = window.globalMasterProducts.length;
         if (count > 0) {
             statElem.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#10b981;"></i> เชื่อมต่อ DB สมบูรณ์ · สินค้า Master <strong class="mono" style="color:#0f172a; font-size:0.95rem; background:#f1f5f9; padding:2px 6px; border-radius:4px; border:1px solid #cbd5e1;">${count.toLocaleString()}</strong> รายการ`;
         } else {
             statElem.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b;"></i> ไม่พบข้อมูลสินค้า Master`;
         }
     }
-    if (typeof updateKPIs === 'function') updateKPIs();
+    if (typeof window.updateKPIs === 'function') window.updateKPIs();
 }
 
 async function loadDataFromDatabase() {
@@ -521,13 +547,13 @@ async function loadDataFromDatabase() {
         if (cachedStr) {
             const cachedArr = JSON.parse(cachedStr);
             if (Array.isArray(cachedArr) && cachedArr.length > 0) {
-                globalInventoryData = cachedArr;
+                window.globalInventoryData = cachedArr;
                 hasLocalCache = true;
                 mergePendingIntoInventory();
                 rebuildOccupiedSet();
-                populateStockFilterDropdowns();
-                filterInventoryData();
-                if (typeof updateKPIs === 'function') updateKPIs();
+                if (typeof window.populateStockFilterDropdowns === 'function') window.populateStockFilterDropdowns();
+                if (typeof window.filterInventoryData === 'function') window.filterInventoryData();
+                if (typeof window.updateKPIs === 'function') window.updateKPIs();
             }
         }
     } catch (cErr) {
@@ -541,12 +567,11 @@ async function loadDataFromDatabase() {
     try {
         const fetchedData = await fetchAllWarehouseItems();
         if (Array.isArray(fetchedData) && fetchedData.length > 0) {
-            globalInventoryData = fetchedData;
+            window.globalInventoryData = fetchedData;
         }
 
-        globalInventoryData.forEach(item => {
+        window.globalInventoryData.forEach(item => {
             if (item.meter === undefined || item.meter === null || item.meter === '') item.meter = 0;
-            if (!item.received_by) item.received_by = item.received_by_fullname || item.full_name || item.username || item.created_by || item.user_id || 'ไม่ระบุ';
         });
 
         mergePendingIntoInventory();
@@ -554,30 +579,29 @@ async function loadDataFromDatabase() {
         if (typeof loadWarehouseConfigsFromDB === 'function') await loadWarehouseConfigsFromDB();
 
         rebuildOccupiedSet();
-        populateStockFilterDropdowns();
-        filterInventoryData();
-        if (typeof updateKPIs === 'function') updateKPIs();
-        if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
-        if (typeof loadRecentInboundFeedFromDB === 'function') await loadRecentInboundFeedFromDB(); 
+        if (typeof window.populateStockFilterDropdowns === 'function') window.populateStockFilterDropdowns();
+        if (typeof window.filterInventoryData === 'function') window.filterInventoryData();
+        if (typeof window.updateKPIs === 'function') window.updateKPIs();
+        if (typeof window.refreshLocationVisualizerIfActive === 'function') window.refreshLocationVisualizerIfActive();
 
     } catch (err) {
         console.error("loadDataFromDatabase background error:", err);
         updateDBConnectionStatus(false, "(Sync Failed)");
-        if (!Array.isArray(globalInventoryData)) globalInventoryData = [];
-        filterInventoryData();
+        if (!Array.isArray(window.globalInventoryData)) window.globalInventoryData = [];
+        if (typeof window.filterInventoryData === 'function') window.filterInventoryData();
     }
 }
 
 function mergePendingIntoInventory() {
-    const have = new Set(globalInventoryData.map(i => String(i.sn).toLowerCase()));
+    const have = new Set((window.globalInventoryData || []).map(i => String(i.sn).toLowerCase()));
     const activeReceiver = getCurrentReceiverName();
 
     if (typeof offlineInboundQueue !== 'undefined' && Array.isArray(offlineInboundQueue)) {
         offlineInboundQueue.forEach(p => {
             if (!have.has(String(p.sn).toLowerCase())) {
-                globalInventoryData.unshift({
+                window.globalInventoryData.unshift({
                     ...p,
-                    received_by: p.received_by_fullname || p.received_by || p.username || activeReceiver,
+                    received_by_fullname: p.received_by_fullname || p.receiver_fullname || p.received_by || activeReceiver,
                     _pending: true
                 });
             }
@@ -586,14 +610,14 @@ function mergePendingIntoInventory() {
 }
 
 function rebuildOccupiedSet() {
-    occupiedLocationsSet.clear();
-    globalInventoryData.forEach(i => {
+    window.occupiedLocationsSet.clear();
+    (window.globalInventoryData || []).forEach(i => {
         if (i && i.location) {
             const locUpper = String(i.location).toUpperCase().trim();
             if (!['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(locUpper)) {
-                occupiedLocationsSet.add(locUpper);
-                const norm = normalizeLoc(locUpper);
-                if (norm) occupiedLocationsSet.add(norm);
+                window.occupiedLocationsSet.add(locUpper);
+                const norm = window.normalizeLoc(locUpper);
+                if (norm) window.occupiedLocationsSet.add(norm);
             }
         }
     });
@@ -603,7 +627,7 @@ function resolveProductMetaData(cat, name, sampleItem) {
     const catStr = String(cat || '').trim();
     const nameStr = String(name || '').trim();
 
-    const master = globalMasterProducts.find(m => 
+    const master = (window.globalMasterProducts || []).find(m => 
         (m.sku && String(m.sku).trim().toLowerCase() === catStr.toLowerCase()) ||
         (m.code && String(m.code).trim().toLowerCase() === catStr.toLowerCase()) ||
         (m.name && String(m.name).trim().toLowerCase() === nameStr.toLowerCase()) ||
@@ -644,3 +668,25 @@ function resolveProductMetaData(cat, name, sampleItem) {
 
     return { brand, model, itemType, image };
 }
+
+// Bind Global Window Methods safely
+window.getSupabaseClient = getSupabaseClient;
+window.setupRealtimeSubscription = setupRealtimeSubscription;
+window.extractAisleBayKey = extractAisleBayKey;
+window.extractAisleKey = extractAisleKey;
+window.extractBayKey = extractBayKey;
+window.formatAisleBayLabel = formatAisleBayLabel;
+window.discoverAllDatabaseAisles = discoverAllDatabaseAisles;
+window.formatReceiverFullName = formatReceiverFullName;
+window.getCurrentReceiverName = getCurrentReceiverName;
+window.getCurrentUserRole = getCurrentUserRole;
+window.calculateAisleCapacityInfo = calculateAisleCapacityInfo;
+window.findFirstAvailableSlotInAisleBay = findFirstAvailableSlotInAisleBay;
+window.calculateBatchRelocateTargetCoordinates = calculateBatchRelocateTargetCoordinates;
+window.showTableLoadingState = showTableLoadingState;
+window.fetchAllWarehouseItems = fetchAllWarehouseItems;
+window.loadMasterProductsFromDB = loadMasterProductsFromDB;
+window.loadDataFromDatabase = loadDataFromDatabase;
+window.resolveProductMetaData = resolveProductMetaData;
+window.rebuildOccupiedSet = rebuildOccupiedSet;
+window.updateDBConnectionStatus = updateDBConnectionStatus;
