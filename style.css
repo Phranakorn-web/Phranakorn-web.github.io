@@ -1,5 +1,5 @@
 /* =========================================================================
-   --- WMS ENTERPRISE ENGINE: COMPLETE & FULL ULTIMATE STYLESHEET (v6.0 Mobile Optimized) ---
+   --- WMS ENTERPRISE ENGINE: COMPLETE & FULL ULTIMATE STYLESHEET (v6.2 Mobile Optimized) ---
    ========================================================================= */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Prompt:wght@300;400;500;600;700&family=Kanit:wght@300;400;500;600;700&display=swap');
@@ -664,7 +664,7 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
     width: 100%;
 }
 
-/* 🟢 UPDATED: KPI CARDS STRUCTURED CONTAINER (หน้าเช็คสต็อกสินค้า) */
+/* 🟢 KPI CARDS STRUCTURED CONTAINER */
 .kpi-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1028,13 +1028,11 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
     .navbar-center-container { max-width: 280px; }
 }
 
-/* 🟢 MOBILE RESPONSIVE ENGINE (PHONE LANDSCAPE / PORTRAIT) */
 @media (max-width: 768px) {
     body {
         touch-action: manipulation;
     }
 
-    /* 📱 Sidebar Menu Drawer Mode */
     .sidebar {
         position: fixed !important;
         top: 0 !important;
@@ -1061,7 +1059,6 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
         width: 100vw !important;
     }
 
-    /* 📱 Native Mobile Top Navbar */
     .top-navbar {
         padding: 0 10px !important;
         height: 56px !important;
@@ -1103,7 +1100,6 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
         border-radius: var(--radius-md) !important;
     }
 
-    /* 🟢 Mobile KPI Grid Alignment */
     .kpi-grid {
         grid-template-columns: 1fr !important;
         gap: 0.75rem !important;
@@ -1126,15 +1122,14 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
         gap: 0.65rem !important;
     }
 
-    /* 🟢 Form Input Touch Enhancements for Mobile/Barcode Scanner */
     .form-control, .form-select {
-        font-size: 1rem !important; /* Prevents auto-zoom on iOS Safari */
+        font-size: 1rem !important;
         min-height: 46px !important;
         padding: 10px 12px !important;
     }
 
     .btn {
-        min-height: 44px !important; /* Touch friendly height */
+        min-height: 44px !important;
         font-size: 0.9rem !important;
         width: 100%;
         margin-bottom: 4px;
@@ -1145,7 +1140,6 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
         width: auto !important;
     }
 
-    /* 🟢 Mobile Native-App Style Responsive Table Layout */
     .table-responsive {
         border-radius: var(--radius-md) !important;
         border: 1px solid var(--border-color) !important;
@@ -1153,7 +1147,7 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
     }
 
     .table-custom, .modern-table {
-        min-width: 650px; /* Enable smooth scrolling without column clipping */
+        min-width: 650px;
     }
 
     .table-custom th, .modern-table th {
@@ -1166,9 +1160,8 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
         font-size: 0.82rem !important;
     }
 
-    /* 🟢 Mobile Modals Layout */
     .modal-overlay {
-        align-items: flex-end !important; /* Native bottom sheet feel on phone */
+        align-items: flex-end !important;
         padding: 0 !important;
     }
 
@@ -1185,7 +1178,6 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
         overflow-y: auto !important;
     }
 
-    /* 🟢 Toast Notification positioning on Mobile */
     .wms-popup-toast-overlay {
         bottom: 16px !important;
         right: 12px !important;
@@ -1201,7 +1193,6 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
         white-space: nowrap;
     }
 
-    /* Outbound & Live Feed Adjustments */
     .fullscreen-split-layout {
         gap: 0.85rem !important;
     }

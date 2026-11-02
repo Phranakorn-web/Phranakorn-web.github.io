@@ -76,20 +76,57 @@ function populateAisleDropdowns() {
     const filterSelect = document.getElementById('filterAisleSelect');
     const inboundSelect = document.getElementById('inboundAisleSelect');
     const relocateSelect = document.getElementById('relocateAisleSelect');
+    const batchRelocateSelect = document.getElementById('batchRelocateAisleSelect');
 
     if (typeof masterAisles === 'undefined' || !Array.isArray(masterAisles)) return;
+
+    const safeEscape = (str) => (typeof escapeHTML === 'function') ? escapeHTML(str) : str;
 
     const optionsHtml = masterAisles.map(a => {
         let label = `แถว ${a}`;
         if (a === 'DOCK') label = '🚚 ลาน DOCK';
         else if (a === 'OFFICE') label = '🏢 ฝากเก็บในออฟฟิศ';
         else if (a === 'PENDING') label = '⏳ รอรับเข้าจริง';
-        return `<option value="${escapeHTML(a)}">${label}</option>`;
+        return `<option value="${safeEscape(a)}">${label}</option>`;
     }).join('');
 
-    if (filterSelect) filterSelect.innerHTML = `<option value="ALL">📍 แสดงทุกแถว (All)</option>` + optionsHtml;
-    if (inboundSelect) inboundSelect.innerHTML = optionsHtml;
-    if (relocateSelect) relocateSelect.innerHTML = optionsHtml;
+    const defaultPlaceholder = `<option value="" disabled selected>โปรดเลือกแถวจัดเก็บ</option>`;
+
+    if (filterSelect) {
+        const curVal = filterSelect.value || 'ALL';
+        filterSelect.innerHTML = `<option value="ALL">📍 แสดงทุกแถว (All)</option>` + optionsHtml;
+        filterSelect.value = curVal;
+    }
+
+    if (inboundSelect) {
+        const curVal = inboundSelect.value;
+        inboundSelect.innerHTML = defaultPlaceholder + optionsHtml;
+        if (curVal && curVal !== 'DOCK') {
+            inboundSelect.value = curVal;
+        } else {
+            inboundSelect.value = '';
+        }
+    }
+
+    if (relocateSelect) {
+        const curVal = relocateSelect.value;
+        relocateSelect.innerHTML = defaultPlaceholder + optionsHtml;
+        if (curVal && curVal !== 'DOCK') {
+            relocateSelect.value = curVal;
+        } else {
+            relocateSelect.value = '';
+        }
+    }
+
+    if (batchRelocateSelect) {
+        const curVal = batchRelocateSelect.value;
+        batchRelocateSelect.innerHTML = defaultPlaceholder + optionsHtml;
+        if (curVal && curVal !== 'DOCK') {
+            batchRelocateSelect.value = curVal;
+        } else {
+            batchRelocateSelect.value = '';
+        }
+    }
 }
 
 function generateAutoSN() {
@@ -262,6 +299,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (typeof initOfflineSyncEngine === 'function') initOfflineSyncEngine();
     initKeyboardShortcuts();
 
+    // 🟢 โหลด Dropdown ล่าสุดทันทีเพื่อความสอดคล้องกันตั้งแต่ก่อนและหลังดึงฐานข้อมูลสำเร็จ
+    populateAisleDropdowns();
+
     // 🟢 1. ดึงหน้า View ปัจจุบันขึ้นมาเรนเดอร์ทันทีโดยไม่ขึ้นหน้าขาว
     const activeView = (typeof getCurrentActiveView === 'function') 
         ? getCurrentActiveView() 
@@ -280,6 +320,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (typeof loadPendingApprovalsFromDB === 'function') await loadPendingApprovalsFromDB();
     }
 
+    // 🟢 อัปเดตรายชื่อ Dropdown อีกครั้งหลังโหลดคอนฟิกสำเร็จ เพื่อให้รายชื่อสอดคล้องกันตลอดเวลา
     populateAisleDropdowns();
     if (typeof onInboundAisleOrBayChange === 'function') onInboundAisleOrBayChange();
 
