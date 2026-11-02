@@ -1,5 +1,5 @@
 // =========================================================================
-// 📌 [ส่วนที่ 2] WMS DATABASE ENGINE, CACHE & CAPACITY CALCULATOR (FULL VERSION)
+// 📌 [ส่วนที่ 2] WMS DATABASE ENGINE, CACHE & CAPACITY CALCULATOR (FULL VERSION v12.3 ULTRA REAL-TIME 100%)
 // =========================================================================
 
 // Safety Safeguards Fallback
@@ -42,6 +42,7 @@ window.pendingBarcodePrintTarget = window.pendingBarcodePrintTarget || [];
 
 let realtimeSubChannel = null;
 let realtimeDebounceTimer = null;
+let backgroundHeartbeatInterval = null;
 
 function getSupabaseClient() {
     if (typeof _supabase !== 'undefined' && _supabase) return _supabase;
@@ -63,18 +64,49 @@ function fetchWithTimeout(promise, ms = 6000) {
     ]);
 }
 
+// 🟢 ศูนย์กลางการรีเฟรช UI หน้าเช็คสต็อกสินค้าและทุกส่วนแบบ Real-time 100%
+function autoRefreshActiveView() {
+    if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
+    if (typeof populateStockFilterDropdowns === 'function') populateStockFilterDropdowns();
+    if (typeof filterInventoryData === 'function') filterInventoryData();
+    if (typeof updateKPIs === 'function') updateKPIs();
+    if (typeof refreshStockDetailModalIfActive === 'function') refreshStockDetailModalIfActive();
+    if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
+    if (typeof renderInboundHistory === 'function') renderInboundHistory();
+    if (typeof renderOutboundHistory === 'function') renderOutboundHistory();
+}
+window.autoRefreshActiveView = autoRefreshActiveView;
+
+// 🟢 กระจายสัญญาณให้ทุกแท็บและอุปกรณ์รับทราบเพื่อรีเฟรชเบื้องหลังทันที (Zero-Delay Broadcast)
+function notifyWmsDataChanged(actionType, payloadData) {
+    const eventDetail = { eventType: actionType, payload: payloadData, timestamp: Date.now() };
+
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('wms:data-updated', { detail: eventDetail }));
+
+        if (typeof BroadcastChannel !== 'undefined') {
+            try {
+                const bc = new BroadcastChannel('wms_realtime_sync_channel');
+                bc.postMessage(eventDetail);
+                bc.close();
+            } catch (e) {}
+        }
+    }
+}
+window.notifyWmsDataChanged = notifyWmsDataChanged;
+
 function setupRealtimeSubscription() {
     const client = getSupabaseClient();
     if (client && typeof client.channel === 'function' && !realtimeSubChannel) {
         try {
             realtimeSubChannel = client
-                .channel('wms_warehouse_items_realtime')
+                .channel('wms_warehouse_items_realtime_v3')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, (payload) => {
                     handleRealtimeDataChange('SUPABASE_REALTIME', payload);
                 })
                 .subscribe((status) => {
                     if (status === 'SUBSCRIBED') {
-                        console.log('⚡ WMS Realtime Engine: Listening for stock changes...');
+                        console.log('⚡ WMS Engine v12.3: Realtime Websocket Sync Active');
                     }
                 });
         } catch (err) {
@@ -94,20 +126,88 @@ function setupRealtimeSubscription() {
                 };
             } catch (e) {}
         }
+
+        // 🟢 เมื่อกลับมาโฟกัสหน้าจอ ให้รีเฟรชข้อมูลเบื้องหลังสดๆ ทันที
+        window.removeEventListener('focus', handleWindowFocusSync);
+        window.addEventListener('focus', handleWindowFocusSync);
+
+        document.removeEventListener('visibilitychange', handleVisibilitySync);
+        document.addEventListener('visibilitychange', handleVisibilitySync);
     }
+
+    startBackgroundHeartbeatSync();
+}
+
+function handleWindowFocusSync() {
+    refreshInventoryDataSilently();
+}
+
+function handleVisibilitySync() {
+    if (document.visibilityState === 'visible') {
+        refreshInventoryDataSilently();
+    }
+}
+
+// 🟢 ระบบ Background Heartbeat Sync คอยตรวจสอบความถูกต้องของฐานข้อมูลในเบื้องหลังแบบเงียบๆ ทุก 4 วินาที
+function startBackgroundHeartbeatSync() {
+    if (backgroundHeartbeatInterval) clearInterval(backgroundHeartbeatInterval);
+    backgroundHeartbeatInterval = setInterval(() => {
+        if (navigator.onLine) {
+            refreshInventoryDataSilently();
+        }
+    }, 4000);
 }
 
 function handleLocalDataChangeEvent(event) {
     handleRealtimeDataChange('LOCAL_EVENT', event ? event.detail : null);
 }
 
-function handleRealtimeDataChange(source, data) {
+// 🟢 จัดการการเปลี่ยนแปลงข้อมูล Realtime แบบไร้ดีเลย์ (Immediate Instant Refresh 0ms)
+function handleRealtimeDataChange(source, payload) {
+    if (payload) {
+        const eventType = payload.eventType || payload.type;
+        const newRow = payload.new || (payload.payload && payload.payload.item ? payload.payload.item : payload.payload);
+        const oldRow = payload.old || payload.payload;
+
+        if ((eventType === 'INSERT' || eventType === 'INBOUND_SCAN' || eventType === 'INBOUND') && newRow && newRow.sn) {
+            const existsIndex = window.globalInventoryData.findIndex(i => String(i.sn).toLowerCase() === String(newRow.sn).toLowerCase());
+            if (existsIndex === -1) {
+                newRow._isNewRealtime = true;
+                window.globalInventoryData.unshift(newRow);
+            } else {
+                window.globalInventoryData[existsIndex] = { ...window.globalInventoryData[existsIndex], ...newRow, _isUpdatedRealtime: true };
+            }
+        } else if ((eventType === 'UPDATE' || eventType === 'RELOCATE' || eventType === 'EDIT') && newRow) {
+            const index = window.globalInventoryData.findIndex(i => 
+                (newRow.id && String(i.id) === String(newRow.id)) || 
+                (newRow.sn && String(i.sn).toLowerCase() === String(newRow.sn).toLowerCase())
+            );
+            if (index !== -1) {
+                window.globalInventoryData[index] = { ...window.globalInventoryData[index], ...newRow, _isUpdatedRealtime: true };
+            }
+        } else if ((eventType === 'DELETE' || eventType === 'DELETE_ITEMS' || eventType === 'OUTBOUND' || eventType === 'OUTBOUND_SCAN') && oldRow) {
+            const targetSn = oldRow.sn || (payload.payload ? payload.payload.sn : null);
+            const deleteSns = payload.payload && payload.payload.deleteSns ? payload.payload.deleteSns : (targetSn ? [targetSn] : []);
+            
+            if (deleteSns.length > 0) {
+                window.globalInventoryData = window.globalInventoryData.filter(i => !deleteSns.includes(i.sn));
+            } else if (oldRow.id) {
+                window.globalInventoryData = window.globalInventoryData.filter(i => String(i.id) !== String(oldRow.id));
+            }
+        }
+
+        // ⚡ วาด UI หน้าเช็คสต็อกใหม่ทันที 0ms (Zero Delay)
+        autoRefreshActiveView();
+    }
+
+    // เรียกดึงข้อมูล DB สดในเบื้องหลังทันทีโดยไม่รอนาน
     clearTimeout(realtimeDebounceTimer);
     realtimeDebounceTimer = setTimeout(() => {
         refreshInventoryDataSilently();
-    }, 300);
+    }, 50);
 }
 
+// 🟢 ดึงข้อมูลสินค้าล่าสุดจาก Supabase DB เบื้องหลังอย่างรวดเร็ว โดยไม่ขัดจังหวะการทำงานของผู้ใช้
 async function refreshInventoryDataSilently() {
     try {
         const fetchedData = await fetchAllWarehouseItems();
@@ -118,17 +218,13 @@ async function refreshInventoryDataSilently() {
             });
 
             mergePendingIntoInventory();
-            rebuildOccupiedSet();
-            if (typeof window.populateStockFilterDropdowns === 'function') window.populateStockFilterDropdowns();
-            if (typeof window.filterInventoryData === 'function') window.filterInventoryData();
-            if (typeof window.updateKPIs === 'function') window.updateKPIs();
-            if (typeof window.refreshStockDetailModalIfActive === 'function') window.refreshStockDetailModalIfActive();
-            if (typeof window.refreshLocationVisualizerIfActive === 'function') window.refreshLocationVisualizerIfActive();
+            autoRefreshActiveView();
         }
     } catch (e) {
-        console.warn('Silent refresh error:', e);
+        console.warn('Silent refresh background notice:', e);
     }
 }
+window.refreshInventoryDataSilently = refreshInventoryDataSilently;
 
 function updateDBConnectionStatus(isOnline, detailText = '') {
     const yellowPanels = document.querySelectorAll('#offlineYellowPanel, .offline-panel-left, .offline-banner-left, [class*="offline-yellow"]');
@@ -383,7 +479,7 @@ function calculateBatchRelocateTargetCoordinates(targetAisle, requiredCount) {
 
 function showTableLoadingState() {
     const tbody = document.getElementById('inventoryTableBody');
-    if (tbody) {
+    if (tbody && (!window.globalInventoryData || window.globalInventoryData.length === 0)) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="14" style="text-align:center; padding:50px 20px; background:#ffffff;">
@@ -397,7 +493,7 @@ function showTableLoadingState() {
         `;
     }
     const totalBadge = document.getElementById('totalCountBadge');
-    if (totalBadge) {
+    if (totalBadge && (!window.globalInventoryData || window.globalInventoryData.length === 0)) {
         totalBadge.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ซิงค์ DB...`;
     }
 }
@@ -550,10 +646,7 @@ async function loadDataFromDatabase() {
                 window.globalInventoryData = cachedArr;
                 hasLocalCache = true;
                 mergePendingIntoInventory();
-                rebuildOccupiedSet();
-                if (typeof window.populateStockFilterDropdowns === 'function') window.populateStockFilterDropdowns();
-                if (typeof window.filterInventoryData === 'function') window.filterInventoryData();
-                if (typeof window.updateKPIs === 'function') window.updateKPIs();
+                autoRefreshActiveView();
             }
         }
     } catch (cErr) {
@@ -578,11 +671,7 @@ async function loadDataFromDatabase() {
         await loadMasterProductsFromDB();
         if (typeof loadWarehouseConfigsFromDB === 'function') await loadWarehouseConfigsFromDB();
 
-        rebuildOccupiedSet();
-        if (typeof window.populateStockFilterDropdowns === 'function') window.populateStockFilterDropdowns();
-        if (typeof window.filterInventoryData === 'function') window.filterInventoryData();
-        if (typeof window.updateKPIs === 'function') window.updateKPIs();
-        if (typeof window.refreshLocationVisualizerIfActive === 'function') window.refreshLocationVisualizerIfActive();
+        autoRefreshActiveView();
 
     } catch (err) {
         console.error("loadDataFromDatabase background error:", err);

@@ -1,5 +1,5 @@
 /* =========================================================================
-   --- WMS ENTERPRISE ENGINE: COMPLETE & FULL ULTIMATE STYLESHEET (v6.2 Mobile Optimized) ---
+   --- WMS ENTERPRISE ENGINE: COMPLETE & FULL ULTIMATE STYLESHEET (v6.3 Offline & Realtime v12.0) ---
    ========================================================================= */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Prompt:wght@300;400;500;600;700&family=Kanit:wght@300;400;500;600;700&display=swap');
@@ -1013,6 +1013,28 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
     padding: 1rem;
 }
 
+/* 🟢 CAMERA SCANNER MODAL RESPONSIVE FIXES (Zero Overflow) */
+.camera-scanner-card {
+    width: 100% !important;
+    max-width: 480px !important;
+    box-sizing: border-box !important;
+}
+
+.camera-controls-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.camera-controls-grid .btn {
+    flex: 1 1 calc(33.333% - 6px) !important;
+    min-width: 95px !important;
+    box-sizing: border-box !important;
+    margin-bottom: 0 !important;
+}
+
 /* =========================================================================
    📱 MOBILE & HYBRID RESPONSIVE ENGINE (ANDROID & IOS NATIVE-APP DESIGN)
    ========================================================================= */
@@ -1178,6 +1200,10 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
         overflow-y: auto !important;
     }
 
+    .camera-controls-grid .btn {
+        flex: 1 1 100% !important;
+    }
+
     .wms-popup-toast-overlay {
         bottom: 16px !important;
         right: 12px !important;
@@ -1284,4 +1310,28 @@ div[style*="display: flex; align-items: center; gap: 10px;"] {
     background: var(--bg-subtle, #f1f5f9);
     border-radius: var(--radius-md, 12px);
     border: 1px solid var(--border-color, #e2e8f0);
+}
+
+/* =========================================================================
+   ⚡ REAL-TIME HIGHLIGHT & ANIMATION STYLES (v12.0)
+   ========================================================================= */
+
+.row-realtime-new {
+    animation: realtimeRowPulseGreen 2.5s ease-out;
+}
+
+.row-realtime-updated {
+    animation: realtimeRowPulseBlue 2.5s ease-out;
+}
+
+@keyframes realtimeRowPulseGreen {
+    0% { background-color: rgba(16, 185, 129, 0.35) !important; transform: scale(1.01); }
+    50% { background-color: rgba(16, 185, 129, 0.18) !important; }
+    100% { background-color: transparent; transform: scale(1); }
+}
+
+@keyframes realtimeRowPulseBlue {
+    0% { background-color: rgba(37, 99, 235, 0.35) !important; transform: scale(1.01); }
+    50% { background-color: rgba(37, 99, 235, 0.18) !important; }
+    100% { background-color: transparent; transform: scale(1); }
 }

@@ -1,5 +1,5 @@
 // =========================================================================
-// --- MODULE: MAIN CORE ORCHESTRATION & ACTION HANDLERS ---
+// --- MODULE: MAIN CORE ORCHESTRATION & ACTION HANDLERS (v12.1 REAL-TIME 100%) ---
 // =========================================================================
 
 let pendingDeleteMode = null;
@@ -137,7 +137,52 @@ function generateAutoSN() {
     if (typeof showToast === 'function') showToast(`🪄 สุ่ม S/N: ${sn}`);
 }
 
-// 🟢 1. ย้ายพิกัดสินค้าเดี่ยว: บันทึกและ Auto Refresh เรียลไทม์
+// 🟢 ฟังก์ชันลงรับสินค้าจากการสแกน Inbound แบบ Real-time 100% (อัปเดตหน้าเช็คสต็อกทันที)
+async function onInboundScanSuccess(itemData) {
+    if (!itemData || !itemData.sn) return;
+
+    const newItem = {
+        ...itemData,
+        qty: parseInt(itemData.qty) || 1,
+        meter: parseFloat(itemData.meter) || 0,
+        received_by_fullname: itemData.received_by_fullname || (typeof getCurrentReceiverName === 'function' ? getCurrentReceiverName() : 'ผู้ดูแลระบบ'),
+        created_at: itemData.created_at || new Date().toISOString(),
+        _isNewRealtime: true
+    };
+
+    // 1. เพิ่มเข้า Memory หน้า Client ทันที
+    const existsIdx = window.globalInventoryData.findIndex(i => String(i.sn).toLowerCase() === String(newItem.sn).toLowerCase());
+    if (existsIdx === -1) {
+        window.globalInventoryData.unshift(newItem);
+    } else {
+        window.globalInventoryData[existsIdx] = { ...window.globalInventoryData[existsIdx], ...newItem, _isUpdatedRealtime: true };
+    }
+
+    // 2. สั่งให้หน้าเช็คสต็อกสินค้าและ KPIs รีเฟรชทันที
+    if (typeof autoRefreshActiveView === 'function') {
+        autoRefreshActiveView();
+    }
+
+    // 3. กระจายสัญญาณหาทุกแท็บและทุกเครื่อง
+    if (typeof notifyWmsDataChanged === 'function') {
+        notifyWmsDataChanged('INBOUND_SCAN', newItem);
+    }
+
+    // 4. บันทึกลง Supabase DB
+    if (navigator.onLine) {
+        const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
+        if (client) {
+            try {
+                await client.from('warehouse_items').upsert([newItem], { onConflict: 'sn' });
+            } catch (e) {
+                console.error('Supabase Inbound Save Error:', e);
+            }
+        }
+    }
+}
+window.onInboundScanSuccess = onInboundScanSuccess;
+
+// 🟢 1. ย้ายพิกัดสินค้าเดี่ยว: บันทึกและ Auto Refresh เรียลไทม์ 100%
 async function submitRelocateLocation() {
     const snElem = document.getElementById('relocateItemSn');
     const previewBadge = document.getElementById('relocatePreviewBadge');
@@ -171,6 +216,7 @@ async function submitRelocateLocation() {
         const item = globalInventoryData.find(i => i.sn === sn);
         if (item) {
             item.location = newLoc;
+            item._isUpdatedRealtime = true;
         }
     }
 
@@ -188,9 +234,11 @@ async function submitRelocateLocation() {
     if (typeof showToast === 'function') showToast(`🚚 ย้าย S/N: ${sn} ไปยังพิกัด ${newLoc} เรียบร้อยแล้ว`);
     if (typeof logUserActivity === 'function') await logUserActivity('RELOCATE', `ย้ายพิกัดไปที่: ${newLoc}`, sn);
 
-    // Auto Refresh หน้าจอและข้อมูลทันที
+    // Auto Refresh หน้าจอทุกแท็บข้ามเครื่องแบบ Realtime 100%
+    if (typeof notifyWmsDataChanged === 'function') notifyWmsDataChanged('RELOCATE', { sn, newLoc });
     if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
 }
+window.submitRelocateLocation = submitRelocateLocation;
 
 // 🟢 2. ย้ายพิกัดสินค้าแบบกลุ่ม (Batch Relocate): บันทึกและ Auto Refresh เรียลไทม์
 async function executeBatchRelocate() {
@@ -226,6 +274,7 @@ async function executeBatchRelocate() {
             if (item) {
                 const freeLoc = (typeof allocateFreeSlot === 'function') ? allocateFreeSlot(targetAisle) : targetAisle;
                 item.location = freeLoc;
+                item._isUpdatedRealtime = true;
                 if (navigator.onLine && typeof _supabase !== 'undefined' && _supabase) {
                     await _supabase.from('warehouse_items').update({ location: freeLoc }).eq('sn', sn);
                 }
@@ -238,12 +287,14 @@ async function executeBatchRelocate() {
     if (typeof closeBatchRelocateModal === 'function') closeBatchRelocateModal();
     if (typeof refreshLocationVisualizerIfActive === 'function') refreshLocationVisualizerIfActive();
     if (typeof playSuccessSound === 'function') playSuccessSound();
-    if (typeof showToast === 'font-bold') showToast(`🚀 ย้ายสินค้า ${snList.length} รายการไปยังแถว ${targetAisle} เรียบร้อยแล้ว`);
+    if (typeof showToast === 'function') showToast(`🚀 ย้ายสินค้า ${snList.length} รายการไปยังแถว ${targetAisle} เรียบร้อยแล้ว`);
     if (typeof logUserActivity === 'function') await logUserActivity('BATCH_RELOCATE', `ย้ายสินค้ารวม ${snList.length} รายการไปยังแถว ${targetAisle}`);
 
     // Auto Refresh หน้าจอและข้อมูลทันที
+    if (typeof notifyWmsDataChanged === 'function') notifyWmsDataChanged('BATCH_RELOCATE', { targetAisle, count: snList.length });
     if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
 }
+window.executeBatchRelocate = executeBatchRelocate;
 
 // 🟢 3. ลบสินค้าออกจากคลัง: บันทึกและ Auto Refresh เรียลไทม์
 async function executeDeleteAction() {
@@ -291,18 +342,35 @@ async function executeDeleteAction() {
     if (typeof logUserActivity === 'function') await logUserActivity('DELETE', `ลบสินค้าออกจากระบบ (${snsToDelete.length} รายการ)`, snsToDelete.join(', '));
 
     // Auto Refresh หน้าจอและข้อมูลทันที
+    if (typeof notifyWmsDataChanged === 'function') notifyWmsDataChanged('DELETE_ITEMS', { count: snsToDelete.length, deleteSns: snsToDelete });
     if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
 }
+window.executeDeleteAction = executeDeleteAction;
+
+// 🟢 4. การเบิกจ่ายสินค้าออก (Outbound / Stock Out): ตัดสต็อกและ Auto Refresh เรียลไทม์ทันที
+async function submitOutboundSuccess(outboundItem) {
+    if (!outboundItem || !outboundItem.sn) return;
+
+    const sn = outboundItem.sn;
+    if (typeof globalInventoryData !== 'undefined') {
+        globalInventoryData = globalInventoryData.filter(i => String(i.sn).toLowerCase() !== String(sn).toLowerCase());
+    }
+
+    if (typeof autoRefreshActiveView === 'function') autoRefreshActiveView();
+
+    if (typeof notifyWmsDataChanged === 'function') {
+        notifyWmsDataChanged('OUTBOUND', { sn, item: outboundItem });
+    }
+}
+window.submitOutboundSuccess = submitOutboundSuccess;
 
 document.addEventListener('DOMContentLoaded', async () => {
     initThemeSystem();
     if (typeof initOfflineSyncEngine === 'function') initOfflineSyncEngine();
     initKeyboardShortcuts();
 
-    // 🟢 โหลด Dropdown ล่าสุดทันทีเพื่อความสอดคล้องกันตั้งแต่ก่อนและหลังดึงฐานข้อมูลสำเร็จ
     populateAisleDropdowns();
 
-    // 🟢 1. ดึงหน้า View ปัจจุบันขึ้นมาเรนเดอร์ทันทีโดยไม่ขึ้นหน้าขาว
     const activeView = (typeof getCurrentActiveView === 'function') 
         ? getCurrentActiveView() 
         : (localStorage.getItem('WMS_LAST_ACTIVE_VIEW') || 'view-inventory');
@@ -311,7 +379,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         switchView(activeView);
     }
 
-    // 🟢 2. โหลด Auth และ Database ในฉากหลัง
     if (typeof initAuthSystem === 'function') await initAuthSystem();
     if (typeof loadDataFromDatabase === 'function') await loadDataFromDatabase();
     if (typeof loadWarehouseConfigsFromDB === 'function') await loadWarehouseConfigsFromDB();
@@ -320,11 +387,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (typeof loadPendingApprovalsFromDB === 'function') await loadPendingApprovalsFromDB();
     }
 
-    // 🟢 อัปเดตรายชื่อ Dropdown อีกครั้งหลังโหลดคอนฟิกสำเร็จ เพื่อให้รายชื่อสอดคล้องกันตลอดเวลา
     populateAisleDropdowns();
     if (typeof onInboundAisleOrBayChange === 'function') onInboundAisleOrBayChange();
 
-    // 🟢 3. Auto Refresh อัปเดตข้อมูล DB ลงใน View ปัจจุบันแบบ Seamless
     if (typeof autoRefreshActiveView === 'function') {
         autoRefreshActiveView();
     }

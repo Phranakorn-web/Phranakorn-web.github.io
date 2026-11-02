@@ -1,6 +1,6 @@
 // =========================================================================
-// --- MODULE 3: FAST INBOUND DATABASE ENGINE (ENTERPRISE REALTIME v6.2.0) ---
-// --- Mobile/All Devices Auto Camera Scanner & Strict Persistent Aisle Lock ---
+// --- MODULE 3: FAST INBOUND DATABASE ENGINE (ENTERPRISE REALTIME v6.5.0) ---
+// --- Mobile/All Devices Auto Camera Scanner & Single Receiver Column Standard ---
 // =========================================================================
 
 let recentInboundList = [];
@@ -27,6 +27,8 @@ let activeCameraStream = null;
 let isCameraScannerActive = false;
 let cameraScanInterval = null;
 let html5QrCodeScanner = null;
+let currentCameraFacingMode = 'environment'; // 🟢 'environment' = กล้องหลัง, 'user' = กล้องหน้า
+let isTorchOn = false; // 🟢 สถานะไฟฉาย
 
 // 🔊 SOUND EFFECTS SYNTHESIZER (Enterprise WMS Web Audio API Standard)
 function playAudioFeedback(type = 'success') {
@@ -227,7 +229,7 @@ function invalidateOccupiedLocationsCache() {
     }
 }
 
-// 🟢 คืนค่าและรีเซ็ตพิกัดจากความจำ
+// 🟢 คืนค่าและรีเซ็ตพิกัดจากความจำ พร้อมอัปเดตช่องว่างลำดับแรกอัตโนมัติ 100%
 function purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLocation = null) {
     if (!targetSn && !targetId && !targetLocation) return;
     
@@ -277,12 +279,57 @@ function purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId, targetLocati
     }
 
     invalidateOccupiedLocationsCache();
-    forceSyncAndSelectAvailableLocation();
+    // ⚡ อัปเดตหาพิกัดและช่องที่ว่างลำดับแรกให้อัตโนมัติในเบื้องหลัง 100%
+    forceSyncAndSelectAvailableLocation(true);
     scheduleDebouncedFeedRender();
 }
 
 function purgeDeletedSnFromMemory(targetSn, targetId) {
     purgeDispatchedOrDeletedItemFromMemory(targetSn, targetId);
+}
+
+// 🗑️ ระบบลบรายการสินค้าในหน้า Feed แบบ Realtime 100%
+async function deleteInboundItem(sn, id = '', location = '') {
+    if (!sn && !id) return;
+
+    if (!confirm(`⚠️ คุณแน่ใจหรือไม่ว่าต้องการลบรายการ S/N: ${sn} ออกจากฐานข้อมูลคลังสินค้า?`)) {
+        return;
+    }
+
+    // 1. ลบออกจากหน่วยความจำ Local และ Cache ทันที (0ms Synchronous UI Update)
+    purgeDispatchedOrDeletedItemFromMemory(sn, id, location);
+
+    // 2. ลบออกจาก Supabase Database ในเบื้องหลัง 100%
+    if (navigator.onLine && typeof _supabase !== 'undefined' && _supabase) {
+        try {
+            let query = _supabase.from('warehouse_items').delete();
+            if (id) {
+                query = query.eq('id', id);
+            } else if (sn) {
+                query = query.eq('sn', sn);
+            }
+            const { error } = await query;
+            if (error) {
+                console.error("Supabase delete error:", error);
+                showToast(`⚠️ เกิดข้อผิดพลาดในการลบข้อมูลจากเซิร์ฟเวอร์: ${error.message}`, true);
+            } else {
+                showToast(`🗑️ ลบรายการ S/N: ${sn} ออกจากฐานข้อมูลเรียบร้อยแล้ว`, false);
+            }
+        } catch (err) {
+            console.error("DB Delete Exception:", err);
+        }
+    }
+
+    // 3. กระจายคำสั่งลบไปยัง Tab อื่นๆ แบบ Cross-Tab Realtime
+    try {
+        if (typeof BroadcastChannel !== 'undefined') {
+            const channel = new BroadcastChannel('wms_realtime_sync_channel');
+            channel.postMessage({ action: 'DELETE', sn, id, location });
+        }
+    } catch(e) {}
+
+    // 4. คำนวณหาล็อกและช่องว่างลำดับแรกให้อัตโนมัติโดยผู้ใช้ไม่ต้องกดรีเฟรช
+    forceSyncAndSelectAvailableLocation(true);
 }
 
 // 🟢 ดึงและแยกองค์ประกอบพิกัดจัดเก็บอย่างถูกต้องแม่นยำ 100% ไม่คำนวณชั้นผิดพลาด
@@ -296,7 +343,6 @@ function parseLocComponentsInternal(locStr) {
         return { isSpecial: true, code: raw };
     }
 
-    // 1. ตรวจจับรูปแบบรหัสมาตรฐาน: "A-01-02-03", "A_01_02_03", "A-1-2-3", "A-01-02-FULL"
     let codeOnly = raw.replace(/แถว|ล็อก|ชั้น|ช่อง|BAY|SHELF|SLOT|•|📍/gi, ' ').trim();
     let parts = codeOnly.split(/[\-\/_ \t]+/).filter(Boolean);
 
@@ -322,7 +368,6 @@ function parseLocComponentsInternal(locStr) {
         }
     }
 
-    // 2. ตรวจจับข้อความรูปแบบภาษาไทย: "แถว A ล็อก 01 ชั้น 02 ช่อง 03"
     const thaiMatch = raw.match(/แถว\s*([A-Z0-9]+)\s*ล็อก\s*(\d+)\s*ชั้น\s*(\d+)\s*ช่อง\s*(\d+|FULL)/i) ||
                       raw.match(/แถว\s*([A-Z0-9]+)(?:.*?ล็อก\s*(\d+))(?:.*?ชั้น\s*(\d+))(?:.*?ช่อง\s*(\d+|FULL))/i);
     if (thaiMatch && thaiMatch[1]) {
@@ -356,7 +401,6 @@ function parseLocComponentsInternal(locStr) {
         };
     }
 
-    // Fallback
     let p = null;
     if (typeof window !== 'undefined' && typeof window.parseLocationComponents === 'function') {
         p = window.parseLocationComponents(raw);
@@ -419,55 +463,146 @@ function removeOccupiedLocFromSet(targetSet, loc) {
     }
 }
 
+// 🟢 👤 ดึงชื่อผู้ใช้ ชื่อ-นามสกุล ของคนที่ล็อกอินอยู่เข้าใช้งาน 100% บันทึกลง DB แม่นยำ (Single Column Standard: received_by)
 function getCurrentUserFullName() {
+    let userName = '';
+
+    // 1. ตรวจสอบจาก DOM Element Badge ชื่อบนหน้าจอเว็บ
     const profileElem = document.querySelector('.user-profile-badge') || 
                         document.querySelector('.user-name') || 
                         document.getElementById('userProfileBadge') ||
-                        document.getElementById('currentUserNameText');
+                        document.getElementById('currentUserNameText') ||
+                        document.getElementById('userNameDisplay') ||
+                        document.querySelector('.username') ||
+                        document.querySelector('[data-user-name]');
     if (profileElem) {
         const fullText = profileElem.innerText || profileElem.textContent || '';
-        const cleanText = fullText.replace(/\(.*\)/g, '').replace(/[\r\n\t]/g, '').replace(/🟢|🔴|👤|👤\s*/g, '').trim();
-        if (cleanText && !cleanText.includes('เข้าสู่ระบบ') && cleanText.length > 2) {
-            return escapeHTML(cleanText);
+        const cleanText = fullText.replace(/\(.*\)/g, '')
+                                  .replace(/[\r\n\t]/g, '')
+                                  .replace(/🟢|🔴|👤|👤\s*/g, '')
+                                  .replace(/เข้าสู่ระบบ|Log\s*in|Sign\s*in/gi, '')
+                                  .trim();
+        if (cleanText && cleanText.length > 1 && cleanText !== 'ผู้ใช้งาน') {
+            userName = cleanText;
         }
     }
 
-    let u = (typeof window !== 'undefined' && window.currentUser) || (typeof currentUser !== 'undefined' ? currentUser : null);
-    if (u) {
-        if (typeof u === 'string' && u.trim().length > 0) {
-            const cleanStr = u.replace(/\(.*\)/g, '').trim();
-            if (cleanStr && cleanStr.length > 2) return escapeHTML(cleanStr);
-        }
-        if (typeof u === 'object') {
-            const fn = u.first_name || u.firstname || u.firstName || u.user_metadata?.first_name || u.user_metadata?.full_name || u.user_metadata?.name || '';
-            const ln = u.last_name || u.lastname || u.lastName || u.user_metadata?.last_name || '';
-            if (fn || ln) return escapeHTML(`${fn} ${ln}`.trim());
-            if (u.fullname || u.fullName || u.full_name || u.name) return escapeHTML(String(u.fullname || u.fullName || u.full_name || u.name).replace(/\(.*\)/g, '').trim());
-        }
-    }
+    // 2. ตรวจสอบจาก Global Object ของระบบ
+    if (!userName) {
+        const globalUserObjs = [
+            typeof window !== 'undefined' ? window.currentUser : null, 
+            typeof currentUser !== 'undefined' ? currentUser : null,
+            typeof window !== 'undefined' ? window.loggedInUser : null,
+            typeof window !== 'undefined' ? window.userProfile : null,
+            typeof window !== 'undefined' ? window.WMS_USER : null,
+            typeof window !== 'undefined' ? window.activeUser : null
+        ];
 
-    const storageKeys = ['WMS_ACTIVE_USER', 'WMS_USER', 'currentUser', 'user', 'sb-session'];
-    for (const key of storageKeys) {
-        try {
-            const raw = localStorage.getItem(key) || sessionStorage.getItem(key);
-            if (raw) {
-                if (raw.startsWith('{')) {
-                    const parsed = JSON.parse(raw);
-                    const userObj = parsed.user || parsed.current_user || parsed;
-                    if (userObj && typeof userObj === 'object') {
-                        const meta = userObj.user_metadata || userObj;
-                        const fn = meta.first_name || meta.firstname || meta.full_name || meta.name || '';
-                        const ln = meta.last_name || meta.lastname || '';
-                        if (fn || ln) return escapeHTML(`${fn} ${ln}`.trim());
-                    }
-                } else if (raw.trim().length > 2 && !raw.includes('{')) {
-                    return escapeHTML(raw.trim());
+        for (const u of globalUserObjs) {
+            if (!u) continue;
+            if (typeof u === 'string' && u.trim().length > 1) {
+                const cleanStr = u.replace(/\(.*\)/g, '').trim();
+                if (cleanStr && cleanStr.length > 1 && !cleanStr.includes('{')) {
+                    userName = cleanStr;
+                    break;
                 }
             }
-        } catch (e) {}
+            if (typeof u === 'object') {
+                const meta = u.user_metadata || u.profile || u;
+                const fn = meta.first_name || meta.firstname || meta.firstName || meta.full_name || meta.fullname || meta.name || meta.display_name || u.first_name || u.firstname || u.name || '';
+                const ln = meta.last_name || meta.lastname || meta.lastName || u.last_name || u.lastname || '';
+                if (fn || ln) {
+                    const combined = `${fn} ${ln}`.trim();
+                    if (combined && combined.length > 1) {
+                        userName = combined;
+                        break;
+                    }
+                }
+                if (u.email) {
+                    userName = u.email.split('@')[0];
+                    break;
+                }
+            }
+        }
     }
 
-    return 'เจ้าหน้าที่คลังสินค้า';
+    // 3. ตรวจสอบจาก LocalStorage & SessionStorage ครอบคลุมทุกระบบ Login
+    if (!userName) {
+        const storageKeys = [
+            'WMS_ACTIVE_USER', 'WMS_USER', 'currentUser', 'user', 'sb-session', 
+            'WMS_LOGGED_USER', 'wms_user_name', 'user_fullname', 'display_name',
+            'profile', 'session', 'auth_user', 'WMS_USER_PROFILE'
+        ];
+
+        for (const key of storageKeys) {
+            try {
+                const raw = localStorage.getItem(key) || sessionStorage.getItem(key);
+                if (raw) {
+                    if (raw.startsWith('{') || raw.startsWith('[')) {
+                        const parsed = JSON.parse(raw);
+                        const userObj = parsed.user || parsed.current_user || parsed.data?.user || parsed;
+                        if (userObj && typeof userObj === 'object') {
+                            const meta = userObj.user_metadata || userObj.profile || userObj;
+                            const fn = meta.first_name || meta.firstname || meta.full_name || meta.fullname || meta.name || meta.display_name || '';
+                            const ln = meta.last_name || meta.lastname || '';
+                            if (fn || ln) {
+                                const combined = `${fn} ${ln}`.trim();
+                                if (combined && combined.length > 1) {
+                                    userName = combined;
+                                    break;
+                                }
+                            }
+                            if (userObj.email) {
+                                userName = userObj.email.split('@')[0];
+                                break;
+                            }
+                        }
+                    } else if (raw.trim().length > 1 && !raw.includes('{')) {
+                        const cleanStr = raw.replace(/\(.*\)/g, '').trim();
+                        if (cleanStr && cleanStr.length > 1) {
+                            userName = cleanStr;
+                            break;
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+    }
+
+    // 4. สแกนตรวจสอบ Token Supabase Auth LocalStorage Key
+    if (!userName) {
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && (k.includes('auth-token') || k.includes('sb-') || k.includes('supabase'))) {
+                    const raw = localStorage.getItem(k);
+                    if (raw && raw.startsWith('{')) {
+                        const parsed = JSON.parse(raw);
+                        const u = parsed.user || parsed.current_user;
+                        if (u) {
+                            const meta = u.user_metadata || u;
+                            const fn = meta.first_name || meta.full_name || meta.name || meta.display_name || '';
+                            const ln = meta.last_name || '';
+                            if (fn || ln) {
+                                userName = `${fn} ${ln}`.trim();
+                                break;
+                            }
+                            if (u.email) {
+                                userName = u.email.split('@')[0];
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch(e) {}
+    }
+
+    if (!userName || userName.trim().length === 0) {
+        userName = 'เจ้าหน้าที่คลังสินค้า';
+    }
+
+    return userName.trim();
 }
 
 function getAisleConfig(aisleName) {
@@ -809,12 +944,12 @@ function calculateNextAvailableSlotInBayStrictAisle(aisleName, bayName) {
 function calculateAisleCapacityAndNextSlot(aisleName) {
     const aisle = (aisleName || '').trim().toUpperCase();
     if (!aisle || aisle === 'SELECT' || aisle.includes('โปรดเลือก')) {
-        return { location: 'โปรดเลือกแถวจัดเก็บ', bay: 0, shelf: 0, slot: 0, totalSlots: 0, occupiedCount: 0, freeSlots: 0 };
+        return { location: 'โปรดเลือกแถวจัดเก็บ', bay: 0, shelf: 0, slot: 0, totalSlots: 0, occupiedCount: 0, freeSlots: 0, isFull: true };
     }
 
     const specialLocations = ['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'];
     if (specialLocations.includes(aisle)) {
-        return { location: aisle, bay: 0, shelf: 0, slot: 0, totalSlots: 0, occupiedCount: 0, freeSlots: 0 };
+        return { location: aisle, bay: 0, shelf: 0, slot: 0, totalSlots: 0, occupiedCount: 0, freeSlots: 0, isFull: false };
     }
 
     const cfg = getAisleConfig(aisle);
@@ -848,6 +983,7 @@ function calculateAisleCapacityAndNextSlot(aisleName) {
     let targetBay = 0, targetShelf = 0, targetSlot = 0;
     let found = false;
 
+    // 🟢 วนลูปหา ล็อกแรก ชั้นแรก ช่องแรก ที่ว่างแบบ Strict FIFO
     for (let b = 1; b <= totalBays; b++) {
         for (let s = 1; s <= totalShelves; s++) {
             for (let sl = 1; sl <= totalSlotsPerShelf; sl++) {
@@ -880,7 +1016,8 @@ function calculateAisleCapacityAndNextSlot(aisleName) {
         freeSlots: freeSlots,
         baysConfigured: totalBays,
         shelvesConfigured: totalShelves,
-        slotsConfigured: totalSlotsPerShelf
+        slotsConfigured: totalSlotsPerShelf,
+        isFull: !found
     };
 }
 
@@ -959,13 +1096,11 @@ function populateInboundAisleDropdown() {
         aislesList = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
     }
 
-    // 🟢 กรองคำว่า DOCK, SELECT และคำว่า โปรดเลือก ออกจากอาร์เรย์เดิมเพื่อป้องกันการแสดงผลซ้ำซ้อน
     const cleanAisles = aislesList.filter(a => {
         const str = String(a || '').trim().toUpperCase();
         return str && str !== 'DOCK' && str !== 'SELECT' && str !== 'NONE' && !str.includes('โปรดเลือก');
     });
 
-    // 🟢 กำหนดให้ลำดับด้านบนสุดเป็น "-- โปรดเลือกแถวจัดเก็บ --" (แบบไม่ใส่ disabled) ตามด้วยลาน DOCK และแถวอื่น ๆ
     let html = `<option value="" selected>-- โปรดเลือกแถวจัดเก็บ --</option>`;
     html += `<option value="DOCK">📍 โซนลาน DOCK (รับฝากชั่วคราว)</option>`;
 
@@ -983,7 +1118,8 @@ function populateInboundAisleDropdown() {
     }
 }
 
-function populateInboundLocationDropdownsStrict(aisleName, keepBay = null) {
+// 🟢 🎯 คำนวณอัปเดต ล็อกที่ว่างลำดับแรก + ช่องที่ว่างลำดับแรก ให้อัตโนมัติ 100%
+function populateInboundLocationDropdownsStrict(aisleName, keepBay = null, autoSelectFirstAvailable = false) {
     const aisleSelect = document.getElementById('inboundAisleSelect');
     if (!aisleSelect) return;
 
@@ -1000,7 +1136,6 @@ function populateInboundLocationDropdownsStrict(aisleName, keepBay = null) {
 
     if (!baySelect || !shelfSelect || !slotSelect) return;
 
-    // 🟢 หากยังไม่ได้เลือกแถวจัดเก็บ ให้คงค่าว่างและล็อกปิดการเลือกส่วนอื่นไว้ 100%
     if (!aisle || aisle === 'SELECT' || aisle === '' || aisle.includes('โปรดเลือก')) {
         aisleSelect.value = "";
         baySelect.innerHTML = `<option value="00" disabled selected>00 (ล็อกเป็น 0)</option>`;
@@ -1043,11 +1178,21 @@ function populateInboundLocationDropdownsStrict(aisleName, keepBay = null) {
     }
     shelfSelect.innerHTML = shelfHtml;
 
-    let currentSelectedBay = keepBay || baySelect.value || '01';
-    let targetBayNum = parseInt(currentSelectedBay, 10) || 1;
+    // ⚡ คำนวณหา ล็อกที่ว่างลำดับแรก และ ชั้น/ช่อง ที่ว่างลำดับแรกใน แถว นี้
+    const aisleDetails = calculateAisleCapacityAndNextSlot(aisle);
+
+    let targetBayStr = '01';
+
+    if ((autoSelectFirstAvailable || keepBay === null || keepBay === undefined || keepBay === '') && !aisleDetails.isFull && aisleDetails.bay > 0) {
+        targetBayStr = String(aisleDetails.bay).padStart(2, '0');
+    } else {
+        targetBayStr = keepBay || baySelect.value || '01';
+    }
+
+    let targetBayNum = parseInt(targetBayStr, 10) || 1;
     if (targetBayNum > totalBays) targetBayNum = 1;
 
-    let targetBayStr = String(targetBayNum).padStart(2, '0');
+    targetBayStr = String(targetBayNum).padStart(2, '0');
     let resBay = calculateNextAvailableSlotInBayStrictAisle(aisle, targetBayStr);
 
     if (resBay.isFull) {
@@ -1221,12 +1366,12 @@ function onInboundAisleChange(aisleValue) {
         return '';
     }
 
-    populateInboundLocationDropdownsStrict(currentAisle, '01');
+    populateInboundLocationDropdownsStrict(currentAisle, null, true);
     const hiddenLoc = document.getElementById('inboundLocation');
     return hiddenLoc ? hiddenLoc.value : currentAisle;
 }
 
-// 🟢 📹 ระบบกล้องสแกน SN ผ่านโทรศัพท์มือถือและอุปกรณ์ทุกชนิด (Continuous Auto-Detect Barcode Engine)
+// 🟢 📹 ระบบกล้องสแกน SN ผ่านโทรศัพท์มือถือและอุปกรณ์ทุกชนิด (Ultra-Responsive Mobile Barcode Engine v6.3)
 function initMobileCameraScannerModal() {
     let modal = document.getElementById('cameraScannerModal');
     if (!modal) {
@@ -1235,31 +1380,44 @@ function initMobileCameraScannerModal() {
         modal.className = 'modal-overlay';
         modal.style.display = 'none';
         modal.innerHTML = `
-            <div class="card" style="max-width: 460px; width: 94%; text-align: center; padding: 20px; border-radius: 18px; background: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg);">
+            <div class="card camera-scanner-card" style="max-width: 480px; width: 94%; text-align: center; padding: 18px; border-radius: 20px; background: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg); overflow: hidden;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
-                        <i class="fa-solid fa-camera" style="color: var(--primary);"></i> สแกนบาร์โค้ด / QR Realtime
+                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px; margin: 0;">
+                        <i class="fa-solid fa-camera" style="color: var(--primary);"></i> สแกนบาร์โค้ด / QR Realtime High-Speed
                     </h3>
-                    <button type="button" onclick="closeCameraScanner()" style="background: none; border: none; font-size: 1.4rem; color: var(--text-muted); cursor: pointer; padding: 0 4px;">&times;</button>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <button type="button" onclick="toggleCameraTorch()" title="เปิด/ปิด ไฟฉาย" id="btnCameraTorchToggle" style="background: var(--bg-subtle); border: 1px solid var(--border-strong); border-radius: 50%; width: 34px; height: 34px; color: var(--text-main); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.9rem;">
+                            <i class="fa-solid fa-bolt"></i>
+                        </button>
+                        <button type="button" onclick="switchCameraFacingMode()" title="สลับกล้องหน้า/หลัง" style="background: var(--primary-light); border: 1px solid var(--primary-border); border-radius: 50%; width: 34px; height: 34px; color: var(--primary-text); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.9rem;">
+                            <i class="fa-solid fa-camera-rotate"></i>
+                        </button>
+                        <button type="button" onclick="closeCameraScanner()" style="background: none; border: none; font-size: 1.4rem; color: var(--text-muted); cursor: pointer; padding: 0 4px; line-height: 1;">&times;</button>
+                    </div>
                 </div>
-                <div style="position: relative; width: 100%; height: 280px; background: #000; border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                <div style="position: relative; width: 100%; height: 290px; background: #000; border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
                     <div id="html5QrCodeReader" style="width: 100%; height: 100%;"></div>
                     <video id="cameraScannerVideo" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; display: none;"></video>
                     
-                    <!-- แอนิเมชันกรอบสแกนบาร์โค้ดพร้อมลำแสงเลเซอร์ Realtime -->
+                    <!-- กรอบสแกนบาร์โค้ด High Dynamic Laser Frame -->
                     <div class="camera-scanner-frame" style="pointer-events:none;">
                         <div class="camera-scanner-laser"></div>
                     </div>
-                    <div style="position: absolute; bottom: 10px; background: rgba(0,0,0,0.72); color: #fff; padding: 4px 14px; border-radius: 20px; font-size: 0.75rem; backdrop-filter: blur(6px); pointer-events: none; border: 1px solid rgba(255,255,255,0.15);">
-                        <i class="fa-solid fa-expand" style="color: #38bdf8;"></i> วางบาร์โค้ดให้อยู่ในกรอบ ระบบจะสแกนให้อัตโนมัติ
+                    <div style="position: absolute; bottom: 10px; background: rgba(0,0,0,0.78); color: #fff; padding: 6px 14px; border-radius: 20px; font-size: 0.76rem; backdrop-filter: blur(8px); pointer-events: none; border: 1px solid rgba(255,255,255,0.18); display: flex; align-items: center; gap: 6px; max-width: 90%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        <i class="fa-solid fa-expand" style="color: #38bdf8;"></i> <span id="cameraScannerStatusText">เล็งบาร์โค้ดให้อยู่ในกรอบ ระบบจะอ่านให้อัตโนมัติ</span>
                     </div>
                 </div>
-                <div style="display: flex; gap: 8px; margin-top: 14px;">
-                    <button type="button" class="btn btn-secondary" style="flex: 1;" onclick="closeCameraScanner()">
+
+                <!-- แผงปุ่มควบคุม Flex-wrap ที่ปรับยืดหยุ่นไม่ตกขอบทุกอุปกรณ์ -->
+                <div class="camera-controls-grid" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; width: 100%;">
+                    <button type="button" class="btn btn-secondary" style="flex: 1 1 calc(33.333% - 6px); min-width: 100px; padding: 8px 10px; font-size: 0.82rem;" onclick="closeCameraScanner()">
                         <i class="fa-solid fa-xmark"></i> ปิดกล้อง
                     </button>
-                    <button type="button" class="btn btn-primary" style="flex: 1;" onclick="simulateCameraScanSuccess()">
-                        <i class="fa-solid fa-bolt"></i> ทดสอบสแกน
+                    <button type="button" class="btn btn-secondary" style="flex: 1 1 calc(33.333% - 6px); min-width: 110px; padding: 8px 10px; font-size: 0.82rem;" onclick="switchCameraFacingMode()">
+                        <i class="fa-solid fa-camera-rotate"></i> กล้อง (<span id="cameraFacingLabel">หลัง</span>)
+                    </button>
+                    <button type="button" class="btn btn-primary" style="flex: 1 1 calc(33.333% - 6px); min-width: 110px; padding: 8px 10px; font-size: 0.82rem;" onclick="simulateCameraScanSuccess()">
+                        <i class="fa-solid fa-bolt"></i> สแกนจำลอง
                     </button>
                 </div>
             </div>
@@ -1280,6 +1438,15 @@ function openCameraScanner() {
     modal.style.display = 'flex';
     isCameraScannerActive = true;
 
+    startCameraWithCurrentFacingMode();
+}
+
+function startCameraWithCurrentFacingMode() {
+    const facingLabel = document.getElementById('cameraFacingLabel');
+    if (facingLabel) {
+        facingLabel.textContent = currentCameraFacingMode === 'user' ? 'หน้า' : 'หลัง';
+    }
+
     if (typeof Html5Qrcode !== 'undefined') {
         const qrCodeContainer = document.getElementById('html5QrCodeReader');
         if (qrCodeContainer) {
@@ -1292,10 +1459,25 @@ function openCameraScanner() {
             }
 
             html5QrCodeScanner = new Html5Qrcode("html5QrCodeReader");
-            const config = { fps: 15, qrbox: { width: 250, height: 180 }, aspectRatio: 1.0 };
+            
+            // 🟢 ปรับเพิ่ม Resolution และ FPS เพื่อความแม่นยำสูงสุด
+            const config = { 
+                fps: 30, 
+                qrbox: { width: 270, height: 180 }, 
+                aspectRatio: 1.0,
+                videoConstraints: {
+                    facingMode: currentCameraFacingMode,
+                    width: { min: 640, ideal: 1920, max: 3840 },
+                    height: { min: 480, ideal: 1080, max: 2160 },
+                    frameRate: { ideal: 30 }
+                },
+                experimentalFeatures: {
+                    useBarCodeDetectorIfSupported: true
+                }
+            };
 
             html5QrCodeScanner.start(
-                { facingMode: "environment" },
+                { facingMode: currentCameraFacingMode },
                 config,
                 (decodedText) => {
                     if (decodedText && decodedText.trim()) {
@@ -1304,7 +1486,8 @@ function openCameraScanner() {
                 },
                 (errorMessage) => {}
             ).then(() => {
-                showToast('🟢 เปิดกล้องสแกนบาร์โค้ดสำเร็จ เล็งบาร์โค้ดเพื่อสแกน', false);
+                const modeName = currentCameraFacingMode === 'user' ? 'กล้องหน้า' : 'กล้องหลัง';
+                showToast(`🟢 เปิด${modeName}ความละเอียดสูงสำเร็จ เล็งบาร์โค้ดเพื่อสแกน`, false);
             }).catch(err => {
                 console.warn("Html5Qrcode camera error, fallbacking to getUserMedia:", err);
                 startFallbackMediaScanner();
@@ -1314,6 +1497,59 @@ function openCameraScanner() {
     }
 
     startFallbackMediaScanner();
+}
+
+async function switchCameraFacingMode() {
+    currentCameraFacingMode = (currentCameraFacingMode === 'environment') ? 'user' : 'environment';
+    const modeName = currentCameraFacingMode === 'user' ? 'กล้องหน้า' : 'กล้องหลัง';
+    showToast(`🔄 กำลังสลับไปใช้ ${modeName}...`, false);
+
+    if (html5QrCodeScanner) {
+        try {
+            await html5QrCodeScanner.stop();
+        } catch(e) {}
+    }
+    if (activeCameraStream) {
+        activeCameraStream.getTracks().forEach(track => track.stop());
+        activeCameraStream = null;
+    }
+    if (cameraScanInterval) {
+        clearInterval(cameraScanInterval);
+        cameraScanInterval = null;
+    }
+
+    if (isCameraScannerActive) {
+        startCameraWithCurrentFacingMode();
+    }
+}
+
+async function toggleCameraTorch() {
+    isTorchOn = !isTorchOn;
+    const btn = document.getElementById('btnCameraTorchToggle');
+
+    if (html5QrCodeScanner && isCameraScannerActive) {
+        try {
+            await html5QrCodeScanner.applyVideoConstraints({
+                advanced: [{ torch: isTorchOn }]
+            });
+            showToast(isTorchOn ? "💡 เปิดไฟฉายกล้องแล้ว" : "🔦 ปิดไฟฉายกล้องแล้ว", false);
+            if (btn) btn.style.background = isTorchOn ? "#f59e0b" : "var(--bg-subtle)";
+            return;
+        } catch(e) {}
+    }
+
+    if (activeCameraStream) {
+        const track = activeCameraStream.getVideoTracks()[0];
+        if (track && typeof track.applyConstraints === 'function') {
+            try {
+                await track.applyConstraints({ advanced: [{ torch: isTorchOn }] });
+                showToast(isTorchOn ? "💡 เปิดไฟฉายกล้องแล้ว" : "🔦 ปิดไฟฉายกล้องแล้ว", false);
+                if (btn) btn.style.background = isTorchOn ? "#f59e0b" : "var(--bg-subtle)";
+                return;
+            } catch(e) {}
+        }
+    }
+    showToast("⚠️ ฮาร์ดแวร์หรือเบราว์เซอร์ไม่รองรับการเปิดไฟฉาย", true);
 }
 
 function startFallbackMediaScanner() {
@@ -1326,11 +1562,17 @@ function startFallbackMediaScanner() {
 
     const constraints = {
         video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            facingMode: { ideal: currentCameraFacingMode },
+            width: { min: 640, ideal: 1920 },
+            height: { min: 480, ideal: 1080 },
+            frameRate: { ideal: 30 }
         }
     };
+
+    if (activeCameraStream) {
+        activeCameraStream.getTracks().forEach(track => track.stop());
+        activeCameraStream = null;
+    }
 
     navigator.mediaDevices.getUserMedia(constraints)
         .then(stream => {
@@ -1338,7 +1580,8 @@ function startFallbackMediaScanner() {
             video.srcObject = stream;
             video.setAttribute('playsinline', true);
             video.play();
-            showToast('🟢 เปิดกล้องสแกนสำเร็จแล้ว เล็งบาร์โค้ดเพื่อสแกนอัตโนมัติ', false);
+            const modeName = currentCameraFacingMode === 'user' ? 'กล้องหน้า' : 'กล้องหลัง';
+            showToast(`🟢 เปิด${modeName}สแกนสำเร็จแล้ว เล็งบาร์โค้ดเพื่อสแกนอัตโนมัติ`, false);
             startContinuousBarcodeDetection(video);
         })
         .catch(err => {
@@ -1377,7 +1620,7 @@ function startContinuousBarcodeDetection(videoElement) {
                 }
             }
         } catch (e) {}
-    }, 200);
+    }, 150); // 🟢 ปรับความถี่ในการสแกนให้ไวขึ้นเป็นทุกๆ 150ms
 }
 
 function onCameraBarcodeDetected(scannedCode) {
@@ -1402,6 +1645,7 @@ function onCameraBarcodeDetected(scannedCode) {
 
 function closeCameraScanner() {
     isCameraScannerActive = false;
+    isTorchOn = false;
     if (cameraScanInterval) {
         clearInterval(cameraScanInterval);
         cameraScanInterval = null;
@@ -1535,25 +1779,25 @@ function renderAisleSlotBreakdownUI(details) {
 
 function triggerAutoFindNextSlot() {
     invalidateOccupiedLocationsCache();
-    forceSyncAndSelectAvailableLocation();
+    forceSyncAndSelectAvailableLocation(true);
 }
 
-function forceSyncAndSelectAvailableLocation() {
+function forceSyncAndSelectAvailableLocation(autoSelectFirstAvailable = true) {
     const aisleSelect = document.getElementById('inboundAisleSelect');
     const baySelect = document.getElementById('inboundBaySelect');
 
     const currentAisle = aisleSelect ? aisleSelect.value : '';
     if (!currentAisle || currentAisle.includes('โปรดเลือก')) {
-        populateInboundLocationDropdownsStrict("");
+        populateInboundLocationDropdownsStrict("", null, autoSelectFirstAvailable);
         return;
     }
 
     const currentBay = baySelect ? baySelect.value : '01';
-    populateInboundLocationDropdownsStrict(currentAisle, currentBay);
+    populateInboundLocationDropdownsStrict(currentAisle, autoSelectFirstAvailable ? null : currentBay, autoSelectFirstAvailable);
 }
 
 function autoSelectNextAvailableSlotAfterInbound() {
-    forceSyncAndSelectAvailableLocation();
+    forceSyncAndSelectAvailableLocation(true);
 }
 
 // ⚡ HIGH-SPEED SCAN ENGINE
@@ -1611,7 +1855,6 @@ async function handleInboundSubmit(e) {
         return;
     }
 
-    // 🟢 ตรวจสอบการเลือกพิกัด: ห้ามรับเข้าเด็ดขาดถ้ายังเป็นค่าว่างหรือยังไม่ได้เลือกแถวจัดเก็บ
     const currentSelectedLoc = getSelectedLocationFromDropdowns();
 
     if (!currentSelectedLoc || currentSelectedLoc.includes('โปรดเลือก') || currentSelectedLoc === '') {
@@ -1678,7 +1921,7 @@ async function processScanProcessingQueue() {
                 triggerScanInputFlash('occupied');
                 showToast(`⚠️ พิกัด ${formatLocationSpaced(dbLocation)} มีสินค้า (S/N: ${occupyingSn}) จัดเก็บอยู่แล้ว`, true);
 
-                forceSyncAndSelectAvailableLocation();
+                forceSyncAndSelectAvailableLocation(true);
                 ensureSnInputFocus(true);
                 continue;
             }
@@ -1687,10 +1930,12 @@ async function processScanProcessingQueue() {
         pendingFastSnSet.add(snUpper);
         addOccupiedLocToSet(pendingFastLocationSet, dbLocation);
 
-        const activeUserFullName = getCurrentUserFullName();
+        // 🟢 ดึงชื่อผู้ใช้งาน ชื่อ-นามสกุล ที่ล็อกอินเข้าใช้งานระบบเพื่อบันทึกลง Database (ใช้คอลัมน์ received_by คอลัมน์เดียวตามมาตรฐาน)
+        const activeUserFullName = getCurrentUserFullName() || 'เจ้าหน้าที่คลังสินค้า';
         const nowISO = new Date().toISOString();
         const currentTimeStr = new Date().toLocaleTimeString('th-TH');
 
+        // 🎯 Single Receiver Field Standard for Supabase Insert
         const rawPayload = { 
             category, 
             name, 
@@ -1699,8 +1944,6 @@ async function processScanProcessingQueue() {
             location: dbLocation,
             qty: 1, 
             status: 'IN_STOCK',
-            receiver: activeUserFullName,
-            created_by: activeUserFullName,
             received_by: activeUserFullName,
             created_at: nowISO 
         };
@@ -1711,8 +1954,6 @@ async function processScanProcessingQueue() {
             name, 
             meter: meterVal, 
             location: dbLocation,
-            receiver: activeUserFullName,
-            created_by: activeUserFullName,
             received_by: activeUserFullName,
             time: currentTimeStr,
             created_at: nowISO,
@@ -1721,22 +1962,31 @@ async function processScanProcessingQueue() {
         if (recentInboundList.length > 100) recentInboundList.length = 100;
 
         saveRecentInboundFeedToCache();
-        forceSyncAndSelectAvailableLocation();
+        forceSyncAndSelectAvailableLocation(true);
         triggerScanInputFlash('success');
-        showToast(`✅ สแกนรับเข้าสำเร็จ: S/N ${sn} -> พิกัด ${formatLocationSpaced(dbLocation)} (${activeUserFullName})`);
+        showToast(`✅ สแกนรับเข้าสำเร็จ: S/N ${sn} -> พิกัด ${formatLocationSpaced(dbLocation)} (ผู้รับ: ${activeUserFullName})`);
         scheduleDebouncedFeedRender();
 
+        // 🟢 บันทึกเข้า Supabase ในเบื้องหลังเรียลไทม์ 100%
         (async () => {
             if (navigator.onLine && typeof _supabase !== 'undefined' && _supabase) {
                 try {
-                    const cleanData = typeof sanitizeForDb === 'function' ? sanitizeForDb(rawPayload) : rawPayload;
+                    let cleanData = typeof sanitizeForDb === 'function' ? sanitizeForDb(rawPayload) : rawPayload;
+                    
+                    // ป้องกันการถูก Sanitize ตัดฟิลด์ received_by ออก
+                    if (!cleanData.received_by) {
+                        cleanData.received_by = activeUserFullName;
+                    }
+
                     const { data, error } = await _supabase.from('warehouse_items').insert([cleanData]).select('*');
+                    
                     if (!error && data && data[0]) {
                         const matched = recentInboundList.find(r => r.sn === sn);
                         if (matched) matched.id = data[0].id;
                         saveRecentInboundFeedToCache();
                     } else if (error) {
-                        console.error("Supabase insert error:", error);
+                        console.error("Supabase Insert Failed:", error);
+                        showToast(`⚠️ เกิดข้อผิดพลาด Supabase: ${error.message}`, true, 4500);
                     }
                 } catch (err) {
                     console.error("DB Save Exception:", err);
@@ -1762,7 +2012,6 @@ function scheduleDebouncedFeedRender() {
     });
 }
 
-// 🟢 โหลดข้อมูลแคช Local Storage ให้แสดงผล 0ms ทันทีที่เปิดหน้าเว็บ
 function loadRecentInboundFeedFromCache() {
     try {
         const cached = localStorage.getItem('WMS_RECENT_INBOUND_CACHE');
@@ -1793,7 +2042,7 @@ async function loadRecentInboundFeedFromDB() {
 
         if (!error && data) {
             recentInboundList = data.map(item => {
-                let rName = item.receiver || item.created_by || item.received_by;
+                let rName = item.received_by || item.receiver || item.created_by;
                 if (!rName || rName === 'nakorn.c' || rName === 'Nakorn C' || rName === 'ไม่ระบุผู้บันทึก') {
                     rName = getCurrentUserFullName();
                 }
@@ -1804,8 +2053,6 @@ async function loadRecentInboundFeedFromDB() {
                     name: item.name || '-',
                     meter: item.meter || 0,
                     location: item.location || 'DOCK',
-                    receiver: escapeHTML(rName),
-                    created_by: escapeHTML(rName),
                     received_by: escapeHTML(rName),
                     time: item.created_at ? new Date(item.created_at).toLocaleTimeString('th-TH') : '-',
                     created_at: item.created_at,
@@ -1973,11 +2220,9 @@ async function autoRefreshInboundDatabaseAndLocations() {
 
     const aisleSelect = document.getElementById('inboundAisleSelect');
     if (aisleSelect && aisleSelect.value && !aisleSelect.value.includes('โปรดเลือก')) {
-        const currentBay = document.getElementById('inboundBaySelect')?.value || '01';
-        populateInboundLocationDropdownsStrict(aisleSelect.value, currentBay);
+        populateInboundLocationDropdownsStrict(aisleSelect.value, null, true);
     } else {
-        // 🟢 ล็อกคงสถานะ "-- โปรดเลือกแถวจัดเก็บ --" ไม่เปลี่ยนไปแถวอื่นหรือ DOCK อัตโนมัติ
-        populateInboundLocationDropdownsStrict("");
+        populateInboundLocationDropdownsStrict("", null, true);
     }
     
     scheduleDebouncedFeedRender();
@@ -1990,7 +2235,7 @@ function initWarehouseItemsRealtime() {
 
     try {
         client
-            .channel('public_warehouse_items_realtime_inbound_v62')
+            .channel('public_warehouse_items_realtime_inbound_v65')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, async (payload) => {
                 if (payload.eventType === 'DELETE') {
                     const oldObj = payload.old || {};
@@ -2013,7 +2258,7 @@ function initWarehouseItemsRealtime() {
                         const matchedFeed = recentInboundList.find(r => r.id === payload.new.id || (payload.new.sn && String(r.sn).toUpperCase() === String(payload.new.sn).toUpperCase()));
                         if (matchedFeed) {
                             matchedFeed.location = payload.new.location || matchedFeed.location;
-                            matchedFeed.receiver = getCurrentUserFullName();
+                            matchedFeed.received_by = payload.new.received_by || matchedFeed.received_by || getCurrentUserFullName();
                         }
                     }
                 } else if (payload.eventType === 'INSERT' && payload.new) {
@@ -2032,9 +2277,7 @@ function initWarehouseItemsRealtime() {
                             name: payload.new.name || '-',
                             meter: payload.new.meter || 0,
                             location: payload.new.location || 'DOCK',
-                            receiver: getCurrentUserFullName(),
-                            created_by: getCurrentUserFullName(),
-                            received_by: getCurrentUserFullName(),
+                            received_by: payload.new.received_by || getCurrentUserFullName(),
                             time: payload.new.created_at ? new Date(payload.new.created_at).toLocaleTimeString('th-TH') : new Date().toLocaleTimeString('th-TH'),
                             created_at: payload.new.created_at,
                             isOffline: false
@@ -2141,13 +2384,18 @@ function injectModernScanUIStyles() {
             color: var(--primary-text, #0284c7);
             border-color: var(--primary-border, #bae6fd);
         }
+        .btn-card-action.btn-card-delete:hover {
+            background: #fee2e2 !important;
+            color: #ef4444 !important;
+            border-color: #fca5a5 !important;
+        }
         .camera-scanner-frame {
             position: absolute;
-            width: 80%;
-            height: 55%;
-            border: 2px solid rgba(56, 189, 248, 0.85);
-            border-radius: 12px;
-            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.48);
+            width: 82%;
+            height: 58%;
+            border: 2px solid rgba(56, 189, 248, 0.9);
+            border-radius: 14px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.52);
             pointer-events: none;
             overflow: hidden;
         }
@@ -2155,14 +2403,14 @@ function injectModernScanUIStyles() {
             width: 100%;
             height: 3px;
             background: linear-gradient(90deg, transparent, #ef4444, #38bdf8, #ef4444, transparent);
-            box-shadow: 0 0 12px #38bdf8;
+            box-shadow: 0 0 14px #38bdf8;
             position: absolute;
             top: 0;
-            animation: cameraLaserScan 2s infinite ease-in-out;
+            animation: cameraLaserScan 1.8s infinite ease-in-out;
         }
         @keyframes cameraLaserScan {
             0% { top: 5%; }
-            50% { top: 90%; }
+            50% { top: 92%; }
             100% { top: 5%; }
         }
     `;
@@ -2209,7 +2457,6 @@ function triggerReprintStickerFromFeed(sn, name = '', category = '', location = 
     showToast(`📋 คัดลอก S/N ${sn} สำเร็จแล้ว`, false);
 }
 
-// 🟢 แสดงประวัติการรับเข้าล่าสุด Realtime 100% พร้อมคำนวณและแสดงพิกัดแบบ 1 คอลัมน์ถูกต้องแม่นยำ
 function renderLiveInboundFeed() {
     const container = document.getElementById('liveInboundFeedContainer');
     if (!container) return;
@@ -2224,7 +2471,7 @@ function renderLiveInboundFeed() {
             const nameMatch = String(item.name || '').toLowerCase().includes(recentFeedSearchQuery);
             const catMatch = String(item.category || '').toLowerCase().includes(recentFeedSearchQuery);
             const locMatch = String(item.location || '').toLowerCase().includes(recentFeedSearchQuery);
-            const receiverMatch = String(item.receiver || item.received_by || '').toLowerCase().includes(recentFeedSearchQuery);
+            const receiverMatch = String(item.received_by || item.receiver || '').toLowerCase().includes(recentFeedSearchQuery);
             return snMatch || nameMatch || catMatch || locMatch || receiverMatch;
         });
     }
@@ -2280,13 +2527,14 @@ function renderLiveInboundFeed() {
         filteredList.forEach(item => {
             const locBadgeHTML = formatLocationBadgeHTML(item.location);
             
-            let displayReceiver = item.receiver || item.received_by || item.created_by;
+            let displayReceiver = item.received_by || item.receiver || item.created_by;
             if (!displayReceiver || displayReceiver === 'nakorn.c' || displayReceiver === 'Nakorn C' || displayReceiver === 'ไม่ระบุผู้บันทึก') {
                 displayReceiver = currentActiveUserName;
             }
             
             const receiverName = escapeHTML(displayReceiver);
             const itemSn = escapeHTML(item.sn);
+            const itemId = escapeHTML(item.id || '');
             const itemCategory = escapeHTML(item.category);
             const itemName = escapeHTML(item.name);
             const itemTime = escapeHTML(item.time || (item.created_at ? new Date(item.created_at).toLocaleTimeString('th-TH') : '-'));
@@ -2306,6 +2554,9 @@ function renderLiveInboundFeed() {
                             </button>
                             <button type="button" class="btn-card-action" onclick="triggerReprintStickerFromFeed('${itemSn}', '${itemName}', '${itemCategory}', '${item.location}')" title="ดีดไปที่ศูนย์พิมพ์บาร์โค้ด">
                                 <i class="fa-solid fa-print"></i> พิมพ์
+                            </button>
+                            <button type="button" class="btn-card-action btn-card-delete" onclick="deleteInboundItem('${itemSn}', '${itemId}', '${item.location}')" title="ลบรายการนี้" style="color:#ef4444; border-color:#fca5a5; background:#fef2f2;">
+                                <i class="fa-solid fa-trash-can"></i> ลบ
                             </button>
                         </div>
                     </div>
@@ -2362,14 +2613,11 @@ function initInboundEventListeners() {
     initFrontendSecurityGuards();
     checkAndHideLoginOverlay();
 
-    // 🟢 โหลดข้อมูลแคชแสดงผลทันที 0ms
     loadRecentInboundFeedFromCache();
 
-    // 🟢 เติมค่าเริ่มต้น Dropdown แถวจัดเก็บ
     populateInboundAisleDropdown();
     populateInboundLocationDropdownsStrict("");
 
-    // 🟢 ดึงข้อมูลล่าสุดจาก DB ในเบื้องหลัง
     loadRecentInboundFeedFromDB();
 
     document.addEventListener('biometricLoginSuccess', function(e) {
@@ -2491,6 +2739,7 @@ if (typeof window !== 'undefined') {
     window.invalidateOccupiedLocationsCache = invalidateOccupiedLocationsCache;
     window.purgeDispatchedOrDeletedItemFromMemory = purgeDispatchedOrDeletedItemFromMemory;
     window.purgeDeletedSnFromMemory = purgeDeletedSnFromMemory;
+    window.deleteInboundItem = deleteInboundItem;
     window.calculateNextAvailableSlotInShelf = calculateNextAvailableSlotInShelf;
     window.calculateNextAvailableSlotInBayStrictAisle = calculateNextAvailableSlotInBayStrictAisle;
     window.calculateAisleCapacityAndNextSlot = calculateAisleCapacityAndNextSlot;
@@ -2535,6 +2784,10 @@ if (typeof window !== 'undefined') {
     window.closeCameraScanner = closeCameraScanner;
     window.triggerMobileCameraScan = triggerMobileCameraScan;
     window.generateAutoSN = generateAutoSN;
+    window.startCameraWithCurrentFacingMode = startCameraWithCurrentFacingMode;
+    window.switchCameraFacingMode = switchCameraFacingMode;
+    window.toggleCameraTorch = toggleCameraTorch;
+    window.currentCameraFacingMode = currentCameraFacingMode;
 }
 
 document.addEventListener('DOMContentLoaded', () => {

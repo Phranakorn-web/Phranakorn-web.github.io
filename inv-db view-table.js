@@ -1,5 +1,5 @@
 // =========================================================================
-// 📌 [ส่วนที่ 3] WMS TABLE RENDERER, FILTERS & VIEW MODES
+// 📌 [ส่วนที่ 3] WMS TABLE RENDERER, FILTERS & VIEW MODES (v12.0 REAL-TIME HIGHLIGHT)
 // =========================================================================
 
 function populateStockFilterDropdowns() {
@@ -472,7 +472,6 @@ function renderInventoryTable(items) {
             const tr = document.createElement('tr');
             tr.style.cssText = "border-bottom: 1px solid #e2e8f0; transition: all 0.15s ease; cursor: pointer;";
             
-            // 🟢 เมื่อคลิกทั้งแถว จะเปิด Modal แสดงรายการ S/N ย่อย
             tr.onclick = () => openStockDetailModal(grp.groupKey);
             tr.onmouseover = function() { this.style.background = '#f8fafc'; };
             tr.onmouseout = function() { this.style.background = 'transparent'; };
@@ -559,6 +558,16 @@ function renderInventoryTable(items) {
 
             const tr = document.createElement('tr');
             tr.style.cssText = "border-bottom: 1px solid #e2e8f0; transition: background 0.15s ease;";
+            
+            // 🟢 ไฮไลต์ Real-time อัตโนมัติเมื่อมีข้อมูลเข้าใหม่หรือปรับอัปเดตสด
+            if (item._isNewRealtime) {
+                tr.classList.add('row-realtime-new');
+                delete item._isNewRealtime;
+            } else if (item._isUpdatedRealtime) {
+                tr.classList.add('row-realtime-updated');
+                delete item._isUpdatedRealtime;
+            }
+
             tr.onmouseover = function() { this.style.background = '#f8fafc'; };
             tr.onmouseout = function() { this.style.background = 'transparent'; };
 
@@ -585,7 +594,6 @@ function renderInventoryTable(items) {
                 </td>
                 <td style="text-align:center; font-weight:700; vertical-align:middle; padding:8px 6px;" class="mono">${item.qty ?? 1}</td>
                 
-                <!-- 🟢 แสดงชื่อผู้รับสินค้าเข้าตรงกันกับตอนรับเข้า 100% -->
                 <td style="text-align:center; vertical-align:middle; padding:8px 10px;">
                     <div style="display:flex; align-items:center; justify-content:center;">
                         <span style="font-size:0.78rem; font-weight:700; color:#0f172a; display:inline-flex; align-items:center; justify-content:center; gap:5px; background:#eff6ff; padding:3px 10px; border-radius:6px; border:1px solid #bfdbfe; white-space:nowrap;" title="ผู้รับสินค้าเข้า: ${escapeHTML(receiverFullName)}">
