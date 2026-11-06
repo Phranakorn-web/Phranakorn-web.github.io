@@ -1,5 +1,5 @@
 // =========================================================================
-// --- MODULE 3: FAST INBOUND DATABASE ENGINE (ENTERPRISE REALTIME v6.5.0) ---
+// --- MODULE 3: FAST INBOUND DATABASE ENGINE (ENTERPRISE REALTIME v6.5.0 Modern UI) ---
 // --- Mobile/All Devices Auto Camera Scanner & Single Receiver Column Standard ---
 // =========================================================================
 
@@ -127,7 +127,7 @@ function initFrontendSecurityGuards() {
     }, false);
 }
 
-// 🟢 Toast Notification Glassmorphism
+// 🟢 Toast Notification Glassmorphism (สงวนไว้สำหรับการแจ้งเตือนเตือนผิดพลาด หรือข้อผิดพลาดสำคัญเท่านั้น)
 function showToast(message, isError = false, duration = 3200) {
     showToastPopup(message, isError, duration);
 }
@@ -1371,7 +1371,7 @@ function onInboundAisleChange(aisleValue) {
     return hiddenLoc ? hiddenLoc.value : currentAisle;
 }
 
-// 🟢 📹 ระบบกล้องสแกน SN ผ่านโทรศัพท์มือถือและอุปกรณ์ทุกชนิด (Ultra-Responsive Mobile Barcode Engine v6.3)
+// 🟢 📹 ระบบกล้องสแกน SN ผ่านโทรศัพท์มือถือและอุปกรณ์ทุกชนิด (Ultra-Responsive Modern Mobile Barcode Scanner)
 function initMobileCameraScannerModal() {
     let modal = document.getElementById('cameraScannerModal');
     if (!modal) {
@@ -1380,22 +1380,22 @@ function initMobileCameraScannerModal() {
         modal.className = 'modal-overlay';
         modal.style.display = 'none';
         modal.innerHTML = `
-            <div class="card camera-scanner-card" style="max-width: 480px; width: 94%; text-align: center; padding: 18px; border-radius: 20px; background: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg); overflow: hidden;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px; margin: 0;">
-                        <i class="fa-solid fa-camera" style="color: var(--primary);"></i> สแกนบาร์โค้ด / QR Realtime High-Speed
+            <div class="card camera-scanner-card" style="max-width: 480px; width: 94%; text-align: center; padding: 20px; border-radius: 24px; background: var(--bg-surface, #ffffff); border: 1px solid var(--border-color, #e2e8f0); box-shadow: 0 20px 45px -10px rgba(0,0,0,0.3); overflow: hidden; backdrop-filter: blur(12px);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                    <h3 style="font-size: 1.1rem; font-weight: 700; color: var(--text-main, #0f172a); display: flex; align-items: center; gap: 8px; margin: 0;">
+                        <i class="fa-solid fa-camera" style="color: var(--primary, #0284c7);"></i> สแกนบาร์โค้ด / QR Realtime
                     </h3>
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <button type="button" onclick="toggleCameraTorch()" title="เปิด/ปิด ไฟฉาย" id="btnCameraTorchToggle" style="background: var(--bg-subtle); border: 1px solid var(--border-strong); border-radius: 50%; width: 34px; height: 34px; color: var(--text-main); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.9rem;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button type="button" onclick="toggleCameraTorch()" title="เปิด/ปิด ไฟฉาย" id="btnCameraTorchToggle" style="background: var(--bg-subtle, #f1f5f9); border: 1px solid var(--border-strong, #cbd5e1); border-radius: 50%; width: 36px; height: 36px; color: var(--text-main, #0f172a); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; transition: all 0.2s ease;">
                             <i class="fa-solid fa-bolt"></i>
                         </button>
-                        <button type="button" onclick="switchCameraFacingMode()" title="สลับกล้องหน้า/หลัง" style="background: var(--primary-light); border: 1px solid var(--primary-border); border-radius: 50%; width: 34px; height: 34px; color: var(--primary-text); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.9rem;">
+                        <button type="button" onclick="switchCameraFacingMode()" title="สลับกล้องหน้า/หลัง" style="background: var(--primary-light, #e0f2fe); border: 1px solid var(--primary-border, #bae6fd); border-radius: 50%; width: 36px; height: 36px; color: var(--primary-text, #0284c7); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.95rem; transition: all 0.2s ease;">
                             <i class="fa-solid fa-camera-rotate"></i>
                         </button>
-                        <button type="button" onclick="closeCameraScanner()" style="background: none; border: none; font-size: 1.4rem; color: var(--text-muted); cursor: pointer; padding: 0 4px; line-height: 1;">&times;</button>
+                        <button type="button" onclick="closeCameraScanner()" style="background: none; border: none; font-size: 1.5rem; color: var(--text-muted, #64748b); cursor: pointer; padding: 0 4px; line-height: 1;">&times;</button>
                     </div>
                 </div>
-                <div style="position: relative; width: 100%; height: 290px; background: #000; border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                <div style="position: relative; width: 100%; height: 290px; background: #090d16; border-radius: 16px; overflow: hidden; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.1);">
                     <div id="html5QrCodeReader" style="width: 100%; height: 100%;"></div>
                     <video id="cameraScannerVideo" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; display: none;"></video>
                     
@@ -1403,20 +1403,20 @@ function initMobileCameraScannerModal() {
                     <div class="camera-scanner-frame" style="pointer-events:none;">
                         <div class="camera-scanner-laser"></div>
                     </div>
-                    <div style="position: absolute; bottom: 10px; background: rgba(0,0,0,0.78); color: #fff; padding: 6px 14px; border-radius: 20px; font-size: 0.76rem; backdrop-filter: blur(8px); pointer-events: none; border: 1px solid rgba(255,255,255,0.18); display: flex; align-items: center; gap: 6px; max-width: 90%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    <div style="position: absolute; bottom: 12px; background: rgba(15, 23, 42, 0.85); color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 0.76rem; backdrop-filter: blur(10px); pointer-events: none; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; gap: 6px; max-width: 90%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 4px 12px rgba(0,0,0,0.25);">
                         <i class="fa-solid fa-expand" style="color: #38bdf8;"></i> <span id="cameraScannerStatusText">เล็งบาร์โค้ดให้อยู่ในกรอบ ระบบจะอ่านให้อัตโนมัติ</span>
                     </div>
                 </div>
 
-                <!-- แผงปุ่มควบคุม Flex-wrap ที่ปรับยืดหยุ่นไม่ตกขอบทุกอุปกรณ์ -->
+                <!-- แผงปุ่มควบคุม Modern Responsive Grid -->
                 <div class="camera-controls-grid" style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; width: 100%;">
-                    <button type="button" class="btn btn-secondary" style="flex: 1 1 calc(33.333% - 6px); min-width: 100px; padding: 8px 10px; font-size: 0.82rem;" onclick="closeCameraScanner()">
+                    <button type="button" class="btn btn-secondary" style="flex: 1 1 calc(33.333% - 6px); min-width: 100px; padding: 9px 10px; font-size: 0.82rem; border-radius: 10px;" onclick="closeCameraScanner()">
                         <i class="fa-solid fa-xmark"></i> ปิดกล้อง
                     </button>
-                    <button type="button" class="btn btn-secondary" style="flex: 1 1 calc(33.333% - 6px); min-width: 110px; padding: 8px 10px; font-size: 0.82rem;" onclick="switchCameraFacingMode()">
+                    <button type="button" class="btn btn-secondary" style="flex: 1 1 calc(33.333% - 6px); min-width: 110px; padding: 9px 10px; font-size: 0.82rem; border-radius: 10px;" onclick="switchCameraFacingMode()">
                         <i class="fa-solid fa-camera-rotate"></i> กล้อง (<span id="cameraFacingLabel">หลัง</span>)
                     </button>
-                    <button type="button" class="btn btn-primary" style="flex: 1 1 calc(33.333% - 6px); min-width: 110px; padding: 8px 10px; font-size: 0.82rem;" onclick="simulateCameraScanSuccess()">
+                    <button type="button" class="btn btn-primary" style="flex: 1 1 calc(33.333% - 6px); min-width: 110px; padding: 9px 10px; font-size: 0.82rem; border-radius: 10px;" onclick="simulateCameraScanSuccess()">
                         <i class="fa-solid fa-bolt"></i> สแกนจำลอง
                     </button>
                 </div>
@@ -1486,8 +1486,7 @@ function startCameraWithCurrentFacingMode() {
                 },
                 (errorMessage) => {}
             ).then(() => {
-                const modeName = currentCameraFacingMode === 'user' ? 'กล้องหน้า' : 'กล้องหลัง';
-                showToast(`🟢 เปิด${modeName}ความละเอียดสูงสำเร็จ เล็งบาร์โค้ดเพื่อสแกน`, false);
+                // ลบการแสดง Toast กล้องสแกนสำเร็จเพื่อลดความรำคาญ
             }).catch(err => {
                 console.warn("Html5Qrcode camera error, fallbacking to getUserMedia:", err);
                 startFallbackMediaScanner();
@@ -1501,8 +1500,6 @@ function startCameraWithCurrentFacingMode() {
 
 async function switchCameraFacingMode() {
     currentCameraFacingMode = (currentCameraFacingMode === 'environment') ? 'user' : 'environment';
-    const modeName = currentCameraFacingMode === 'user' ? 'กล้องหน้า' : 'กล้องหลัง';
-    showToast(`🔄 กำลังสลับไปใช้ ${modeName}...`, false);
 
     if (html5QrCodeScanner) {
         try {
@@ -1532,7 +1529,6 @@ async function toggleCameraTorch() {
             await html5QrCodeScanner.applyVideoConstraints({
                 advanced: [{ torch: isTorchOn }]
             });
-            showToast(isTorchOn ? "💡 เปิดไฟฉายกล้องแล้ว" : "🔦 ปิดไฟฉายกล้องแล้ว", false);
             if (btn) btn.style.background = isTorchOn ? "#f59e0b" : "var(--bg-subtle)";
             return;
         } catch(e) {}
@@ -1543,7 +1539,6 @@ async function toggleCameraTorch() {
         if (track && typeof track.applyConstraints === 'function') {
             try {
                 await track.applyConstraints({ advanced: [{ torch: isTorchOn }] });
-                showToast(isTorchOn ? "💡 เปิดไฟฉายกล้องแล้ว" : "🔦 ปิดไฟฉายกล้องแล้ว", false);
                 if (btn) btn.style.background = isTorchOn ? "#f59e0b" : "var(--bg-subtle)";
                 return;
             } catch(e) {}
@@ -1580,8 +1575,6 @@ function startFallbackMediaScanner() {
             video.srcObject = stream;
             video.setAttribute('playsinline', true);
             video.play();
-            const modeName = currentCameraFacingMode === 'user' ? 'กล้องหน้า' : 'กล้องหลัง';
-            showToast(`🟢 เปิด${modeName}สแกนสำเร็จแล้ว เล็งบาร์โค้ดเพื่อสแกนอัตโนมัติ`, false);
             startContinuousBarcodeDetection(video);
         })
         .catch(err => {
@@ -1628,8 +1621,8 @@ function onCameraBarcodeDetected(scannedCode) {
     const cleanCode = scannedCode.replace(/[\r\n\t]/g, '').trim();
     if (!cleanCode) return;
 
+    // ⚡ ส่งเสียง Audio Feedback และ Flash ขอบเพื่อยืนยัน (โดยไม่ขึ้น Toast ป๊อปอัปสแกนเสร็จให้รบกวน)
     playAudioFeedback('success');
-    showToast(`⚡ ตรวจจับบาร์โค้ดสำเร็จ: ${cleanCode}`, false);
 
     const snInput = document.getElementById('inboundSn');
     if (snInput) {
@@ -1683,7 +1676,6 @@ function generateAutoSN() {
     const rand = Math.floor(100000 + Math.random() * 900000);
     snInput.value = `${prefix}-${rand}`;
     triggerScanInputFlash('success');
-    showToast(`🪄 สุ่ม S/N สำเร็จ: ${snInput.value}`, false);
     ensureSnInputFocus(true);
 }
 
@@ -1704,7 +1696,7 @@ function renderAisleSlotBreakdownUI(details) {
 
     if (!details.location || details.location.includes('โปรดเลือก')) {
         infoContainer.innerHTML = `
-            <div style="text-align:center; color:var(--warning, #d97706); font-weight:600; padding:10px; background:var(--warning-light, #fef3c7); border-radius:10px; border:1px solid #fde68a;">
+            <div style="text-align:center; color:var(--warning, #d97706); font-weight:600; padding:12px; background:rgba(254, 243, 199, 0.6); border-radius:12px; border:1px solid #fde68a; backdrop-filter:blur(6px);">
                 ⚠️ โปรดเลือกแถวจัดเก็บจากรายการด้านบนก่อนทำการสแกน
             </div>
         `;
@@ -1713,7 +1705,7 @@ function renderAisleSlotBreakdownUI(details) {
 
     if (['DOCK', 'OFFICE', 'PENDING', 'FOOD', 'FREEZER', 'COLD', 'DRY', 'RAW'].includes(details.location)) {
         infoContainer.innerHTML = `
-            <div style="text-align:center; color:var(--primary-text); font-weight:600; padding:8px; background:var(--primary-light, #e0f2fe); border-radius:10px; border:1px solid var(--primary-border);">
+            <div style="text-align:center; color:var(--primary-text, #0284c7); font-weight:600; padding:10px; background:rgba(224, 242, 254, 0.7); border-radius:12px; border:1px solid var(--primary-border, #bae6fd); backdrop-filter:blur(6px);">
                 📍 พิกัดพิเศษ: <strong>${details.location}</strong> (รับเข้าโซนส่วนกลาง)
             </div>
         `;
@@ -1722,7 +1714,7 @@ function renderAisleSlotBreakdownUI(details) {
 
     if (details.location.endsWith('-FULL') || details.location.includes('FULL')) {
         infoContainer.innerHTML = `
-            <div style="text-align:center; color:var(--danger, #ef4444); font-weight:700; padding:10px; background:var(--danger-light, #fee2e2); border-radius:10px; border:1px solid #fca5a5;">
+            <div style="text-align:center; color:var(--danger, #ef4444); font-weight:700; padding:12px; background:rgba(254, 226, 226, 0.7); border-radius:12px; border:1px solid #fca5a5; backdrop-filter:blur(6px);">
                 ⚠️ ล็อก/แถวนี้เต็มแล้ว! (ใช้ไป ${details.occupiedCount}/${details.totalSlots} ช่อง จากทั้งหมด ${details.baysConfigured} ล็อก)
             </div>
         `;
@@ -1733,44 +1725,44 @@ function renderAisleSlotBreakdownUI(details) {
     const progressColor = usedPercent > 85 ? '#ef4444' : (usedPercent > 60 ? '#f59e0b' : '#10b981');
 
     infoContainer.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border-color, #e2e8f0);">
-            <div style="display:flex; align-items:center; gap:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border-color, #e2e8f0);">
+            <div style="display:flex; align-items:center; gap:8px;">
                 <span class="pulse-live-dot"></span>
-                <span style="font-weight:700; color:var(--text-main); font-size:0.8rem;">สถานะจัดเก็บ Realtime 100%</span>
+                <span style="font-weight:700; color:var(--text-main, #0f172a); font-size:0.83rem;">สถานะจัดเก็บ Realtime 100%</span>
             </div>
-            <button type="button" onclick="triggerAutoFindNextSlot()" style="background:none; border:none; color:var(--primary-text, #0284c7); font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
+            <button type="button" onclick="triggerAutoFindNextSlot()" style="background:none; border:none; color:var(--primary-text, #0284c7); font-size:0.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px; transition:opacity 0.2s ease;">
                 <i class="fa-solid fa-rotate-right"></i> รีเฟรชพิกัด
             </button>
         </div>
 
-        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; text-align:center; margin-bottom:10px;">
-            <div style="background:var(--primary-light, #e0f2fe); padding:6px 4px; border-radius:8px; border:1px solid var(--primary-border);">
-                <span style="font-size:0.7rem; color:var(--text-sub); display:block;">ล็อกที่เลือก</span>
-                <strong style="font-size:0.95rem; color:var(--primary-text);" class="mono">ล็อก ${String(details.bay).padStart(2, '0')}</strong>
+        <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; text-align:center; margin-bottom:12px;">
+            <div style="background:var(--primary-light, #e0f2fe); padding:8px 6px; border-radius:10px; border:1px solid var(--primary-border, #bae6fd);">
+                <span style="font-size:0.7rem; color:var(--text-sub, #475569); display:block; margin-bottom:2px;">ล็อกที่เลือก</span>
+                <strong style="font-size:1rem; color:var(--primary-text, #0284c7);" class="mono">ล็อก ${String(details.bay).padStart(2, '0')}</strong>
             </div>
-            <div style="background:var(--primary-light, #e0f2fe); padding:6px 4px; border-radius:8px; border:1px solid var(--primary-border);">
-                <span style="font-size:0.7rem; color:var(--text-sub); display:block;">ชั้นที่เลือก</span>
-                <strong style="font-size:0.95rem; color:var(--primary-text);" class="mono">ชั้น ${String(details.shelf).padStart(2, '0')}</strong>
+            <div style="background:var(--primary-light, #e0f2fe); padding:8px 6px; border-radius:10px; border:1px solid var(--primary-border, #bae6fd);">
+                <span style="font-size:0.7rem; color:var(--text-sub, #475569); display:block; margin-bottom:2px;">ชั้นที่เลือก</span>
+                <strong style="font-size:1rem; color:var(--primary-text, #0284c7);" class="mono">ชั้น ${String(details.shelf).padStart(2, '0')}</strong>
             </div>
-            <div style="background:var(--success-light, #dcfce7); padding:6px 4px; border-radius:8px; border:1px solid rgba(16,185,129,0.3);">
-                <span style="font-size:0.7rem; color:#15803d; display:block;">ช่องว่าง Auto</span>
-                <strong style="font-size:0.95rem; color:#10b981;" class="mono">ช่อง ${String(details.slot).padStart(2, '0')}</strong>
+            <div style="background:rgba(220, 252, 231, 0.8); padding:8px 6px; border-radius:10px; border:1px solid rgba(16,185,129,0.3);">
+                <span style="font-size:0.7rem; color:#15803d; display:block; margin-bottom:2px;">ช่องว่าง Auto</span>
+                <strong style="font-size:1rem; color:#10b981;" class="mono">ช่อง ${String(details.slot).padStart(2, '0')}</strong>
             </div>
         </div>
 
-        <div style="margin-bottom:8px;">
-            <div style="display:flex; justify-content:space-between; font-size:0.73rem; color:var(--text-sub); margin-bottom:3px;">
+        <div style="margin-bottom:10px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--text-sub, #64748b); margin-bottom:4px;">
                 <span>อัตราความจุแถวนี้:</span>
                 <strong style="color:${progressColor}">${usedPercent}% (${details.occupiedCount}/${details.totalSlots})</strong>
             </div>
-            <div style="width:100%; height:8px; background:var(--bg-subtle, #e2e8f0); border-radius:4px; overflow:hidden;">
-                <div style="width:${usedPercent}%; height:100%; background:${progressColor}; transition:width 0.3s ease;"></div>
+            <div style="width:100%; height:8px; background:var(--bg-subtle, #e2e8f0); border-radius:99px; overflow:hidden;">
+                <div style="width:${usedPercent}%; height:100%; background:${progressColor}; transition:width 0.4s ease-in-out; border-radius:99px;"></div>
             </div>
         </div>
 
-        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--text-sub); border-top:1px dashed var(--border-color); padding-top:8px; margin-top:4px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--text-sub, #64748b); border-top:1px dashed var(--border-color, #cbd5e1); padding-top:10px; margin-top:6px;">
             <span>🟢 ช่องว่างคงเหลือ: <strong style="color:var(--success, #10b981);" class="mono">${details.freeSlots}</strong> / ${details.totalSlots} ช่อง</span>
-            <button type="button" class="btn btn-sm" onclick="triggerAutoFindNextSlot()" style="font-size:0.7rem; padding:3px 10px; background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); border:1px solid var(--primary-border); border-radius:6px; cursor:pointer; font-weight:600;">
+            <button type="button" class="btn btn-sm" onclick="triggerAutoFindNextSlot()" style="font-size:0.72rem; padding:4px 12px; background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); border:1px solid var(--primary-border, #bae6fd); border-radius:8px; cursor:pointer; font-weight:600; transition:all 0.2s ease;">
                 ⚡ หาช่องว่างถัดไป
             </button>
         </div>
@@ -1884,6 +1876,7 @@ async function handleInboundSubmit(e) {
     }
 }
 
+// 🟢 🚀 ประมวลผลคิวสแกนสินค้า - รองรับการสแกนแบบ Realtime และ Offline 100% (ไม่มี Toast มุมขวาล่างให้รบกวน)
 async function processScanProcessingQueue() {
     if (isProcessingScanQueue || scanProcessingQueue.length === 0) return;
     isProcessingScanQueue = true;
@@ -1930,12 +1923,10 @@ async function processScanProcessingQueue() {
         pendingFastSnSet.add(snUpper);
         addOccupiedLocToSet(pendingFastLocationSet, dbLocation);
 
-        // 🟢 ดึงชื่อผู้ใช้งาน ชื่อ-นามสกุล ที่ล็อกอินเข้าใช้งานระบบเพื่อบันทึกลง Database (ใช้คอลัมน์ received_by คอลัมน์เดียวตามมาตรฐาน)
         const activeUserFullName = getCurrentUserFullName() || 'เจ้าหน้าที่คลังสินค้า';
         const nowISO = new Date().toISOString();
         const currentTimeStr = new Date().toLocaleTimeString('th-TH');
 
-        // 🎯 Single Receiver Field Standard for Supabase Insert
         const rawPayload = { 
             category, 
             name, 
@@ -1948,7 +1939,10 @@ async function processScanProcessingQueue() {
             created_at: nowISO 
         };
 
-        recentInboundList.unshift({
+        const isOnlineNow = navigator.onLine;
+
+        // สร้าง Item สำหรับแสดงผลบน Feed ทันทีแบบ 0ms
+        const feedItem = {
             sn, 
             category, 
             name, 
@@ -1957,23 +1951,34 @@ async function processScanProcessingQueue() {
             received_by: activeUserFullName,
             time: currentTimeStr,
             created_at: nowISO,
-            isOffline: false
-        });
+            isOffline: !isOnlineNow,
+            db_status: isOnlineNow ? 'SYNCING' : 'PENDING'
+        };
+
+        recentInboundList.unshift(feedItem);
         if (recentInboundList.length > 100) recentInboundList.length = 100;
 
         saveRecentInboundFeedToCache();
         forceSyncAndSelectAvailableLocation(true);
         triggerScanInputFlash('success');
-        showToast(`✅ สแกนรับเข้าสำเร็จ: S/N ${sn} -> พิกัด ${formatLocationSpaced(dbLocation)} (ผู้รับ: ${activeUserFullName})`);
+
+        // หากออฟไลน์ ใส่เข้าคิว offlineInboundQueue ทันที (ตัด Toast การรับเข้าออก)
+        if (!isOnlineNow) {
+            if (typeof offlineInboundQueue !== 'undefined' && Array.isArray(offlineInboundQueue)) {
+                offlineInboundQueue.push(rawPayload);
+                if (typeof persistQueue === 'function') persistQueue();
+                if (typeof updateOnlineOfflineUI === 'function') updateOnlineOfflineUI(false);
+            }
+        }
+
         scheduleDebouncedFeedRender();
 
-        // 🟢 บันทึกเข้า Supabase ในเบื้องหลังเรียลไทม์ 100%
+        // 🟢 บันทึกเข้า Supabase เบื้องหลัง (Async)
         (async () => {
-            if (navigator.onLine && typeof _supabase !== 'undefined' && _supabase) {
+            if (isOnlineNow && typeof _supabase !== 'undefined' && _supabase) {
                 try {
                     let cleanData = typeof sanitizeForDb === 'function' ? sanitizeForDb(rawPayload) : rawPayload;
                     
-                    // ป้องกันการถูก Sanitize ตัดฟิลด์ received_by ออก
                     if (!cleanData.received_by) {
                         cleanData.received_by = activeUserFullName;
                     }
@@ -1981,15 +1986,34 @@ async function processScanProcessingQueue() {
                     const { data, error } = await _supabase.from('warehouse_items').insert([cleanData]).select('*');
                     
                     if (!error && data && data[0]) {
-                        const matched = recentInboundList.find(r => r.sn === sn);
-                        if (matched) matched.id = data[0].id;
+                        feedItem.id = data[0].id;
+                        feedItem.db_status = 'SYNCED';
+                        feedItem.isOffline = false;
                         saveRecentInboundFeedToCache();
-                    } else if (error) {
-                        console.error("Supabase Insert Failed:", error);
-                        showToast(`⚠️ เกิดข้อผิดพลาด Supabase: ${error.message}`, true, 4500);
+                        scheduleDebouncedFeedRender();
+                        // ⚡ (ลบ Toast การรับเข้าออกเรียบร้อย หน้าจอ Feed และเสียงจะยืนยันการรับเข้าแทน)
+                    } else {
+                        console.error("Supabase Insert Failed, switching to offline queue:", error);
+                        feedItem.db_status = 'PENDING';
+                        feedItem.isOffline = true;
+                        if (typeof offlineInboundQueue !== 'undefined' && Array.isArray(offlineInboundQueue)) {
+                            offlineInboundQueue.push(rawPayload);
+                            if (typeof persistQueue === 'function') persistQueue();
+                            if (typeof updateOnlineOfflineUI === 'function') updateOnlineOfflineUI(navigator.onLine);
+                        }
+                        scheduleDebouncedFeedRender();
+                        showToast(`🟡 บันทึกเข้า DB ไม่สำเร็จ (เครือข่ายขัดข้อง): บันทึกลงคิวออฟไลน์แล้ว`, true, 4500);
                     }
                 } catch (err) {
                     console.error("DB Save Exception:", err);
+                    feedItem.db_status = 'PENDING';
+                    feedItem.isOffline = true;
+                    if (typeof offlineInboundQueue !== 'undefined' && Array.isArray(offlineInboundQueue)) {
+                        offlineInboundQueue.push(rawPayload);
+                        if (typeof persistQueue === 'function') persistQueue();
+                        if (typeof updateOnlineOfflineUI === 'function') updateOnlineOfflineUI(navigator.onLine);
+                    }
+                    scheduleDebouncedFeedRender();
                 }
             }
             invalidateOccupiedLocationsCache();
@@ -2056,7 +2080,8 @@ async function loadRecentInboundFeedFromDB() {
                     received_by: escapeHTML(rName),
                     time: item.created_at ? new Date(item.created_at).toLocaleTimeString('th-TH') : '-',
                     created_at: item.created_at,
-                    isOffline: false
+                    isOffline: false,
+                    db_status: 'SYNCED'
                 };
             });
             saveRecentInboundFeedToCache();
@@ -2137,16 +2162,16 @@ function onSkuSearchInput(val) {
     const uniqueResults = Array.from(skuMap.values());
 
     let headerHtml = `
-        <div style="padding:8px 12px; background:var(--bg-subtle, #f1f5f9); border-bottom:1px solid var(--border-color, #e2e8f0); display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--text-sub);">
+        <div style="padding:10px 14px; background:var(--bg-subtle, #f8fafc); border-bottom:1px solid var(--border-color, #e2e8f0); display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; color:var(--text-sub, #64748b);">
             <span><i class="fa-solid fa-magnifying-glass"></i> ผลการค้นหา (${uniqueResults.length})</span>
-            <span style="background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); padding:2px 8px; border-radius:10px; font-weight:600; font-size:0.75rem;">
+            <span style="background:var(--primary-light, #e0f2fe); color:var(--primary-text, #0284c7); padding:2px 10px; border-radius:12px; font-weight:600; font-size:0.75rem;">
                 <i class="fa-solid fa-tags"></i> มี ${totalModelCount.toLocaleString()} ชื่อรุ่นใน DB
             </span>
         </div>
     `;
 
     if (uniqueResults.length === 0) {
-        box.innerHTML = headerHtml + `<div style="padding:10px; text-align:center; color:var(--text-muted); font-size:0.82rem;">ไม่พบสินค้าในฐานข้อมูล (${masterList.length.toLocaleString()} รายการ)</div>`;
+        box.innerHTML = headerHtml + `<div style="padding:12px; text-align:center; color:var(--text-muted); font-size:0.82rem;">ไม่พบสินค้าในฐานข้อมูล (${masterList.length.toLocaleString()} รายการ)</div>`;
         box.style.display = 'block';
         return;
     }
@@ -2156,16 +2181,16 @@ function onSkuSearchInput(val) {
         const itemSku = escapeHTML(item.sku);
         const itemName = escapeHTML(item.name || 'ไม่ระบุชื่อรุ่น');
         html += `
-            <div class="suggestion-item" style="padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;" onclick="selectSkuSuggestion('${itemSku}', '${itemName}')">
+            <div class="suggestion-item" style="padding:10px 14px; cursor:pointer; border-bottom:1px solid var(--border-color, #f1f5f9); display:flex; justify-content:space-between; align-items:center; transition:background 0.15s ease;" onclick="selectSkuSuggestion('${itemSku}', '${itemName}')">
                 <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
-                    <span class="mono font-bold" style="color:var(--primary-text); font-size:0.88rem; flex-shrink:0;">${itemSku}</span>
-                    <span style="color:var(--text-muted); font-size:0.82rem;">—</span>
-                    <span style="color:var(--text-main); font-size:0.85rem; font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
-                        <i class="fa-solid fa-box-archive" style="font-size:0.75rem; color:var(--primary); margin-right:4px;"></i> ${itemName}
+                    <span class="mono font-bold" style="color:var(--primary-text, #0284c7); font-size:0.88rem; flex-shrink:0;">${itemSku}</span>
+                    <span style="color:var(--text-muted, #94a3b8); font-size:0.82rem;">—</span>
+                    <span style="color:var(--text-main, #0f172a); font-size:0.85rem; font-weight:600; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">
+                        <i class="fa-solid fa-box-archive" style="font-size:0.75rem; color:var(--primary, #0284c7); margin-right:4px;"></i> ${itemName}
                     </span>
                 </div>
-                <span style="font-size:0.75rem; color:var(--text-sub); flex-shrink:0; background:var(--bg-body, #f8fafc); padding:2px 8px; border-radius:6px; border:1px solid var(--border-color); font-weight:600;">
-                    <i class="fa-solid fa-tag" style="color:var(--primary);"></i> ชื่อรุ่น
+                <span style="font-size:0.75rem; color:var(--text-sub, #64748b); flex-shrink:0; background:var(--bg-body, #f8fafc); padding:2px 8px; border-radius:6px; border:1px solid var(--border-color, #e2e8f0); font-weight:600;">
+                    <i class="fa-solid fa-tag" style="color:var(--primary, #0284c7);"></i> ชื่อรุ่น
                 </span>
             </div>
         `;
@@ -2259,6 +2284,8 @@ function initWarehouseItemsRealtime() {
                         if (matchedFeed) {
                             matchedFeed.location = payload.new.location || matchedFeed.location;
                             matchedFeed.received_by = payload.new.received_by || matchedFeed.received_by || getCurrentUserFullName();
+                            matchedFeed.db_status = 'SYNCED';
+                            matchedFeed.isOffline = false;
                         }
                     }
                 } else if (payload.eventType === 'INSERT' && payload.new) {
@@ -2268,8 +2295,8 @@ function initWarehouseItemsRealtime() {
                             globalInventoryData.unshift(payload.new);
                         }
                     }
-                    const existsInFeed = recentInboundList.some(r => r.id === payload.new.id || (payload.new.sn && String(r.sn).toUpperCase() === String(payload.new.sn).toUpperCase()));
-                    if (!existsInFeed) {
+                    const matchedInFeed = recentInboundList.find(r => r.id === payload.new.id || (payload.new.sn && String(r.sn).toUpperCase() === String(payload.new.sn).toUpperCase()));
+                    if (!matchedInFeed) {
                         recentInboundList.unshift({
                             id: payload.new.id,
                             sn: payload.new.sn,
@@ -2280,8 +2307,13 @@ function initWarehouseItemsRealtime() {
                             received_by: payload.new.received_by || getCurrentUserFullName(),
                             time: payload.new.created_at ? new Date(payload.new.created_at).toLocaleTimeString('th-TH') : new Date().toLocaleTimeString('th-TH'),
                             created_at: payload.new.created_at,
-                            isOffline: false
+                            isOffline: false,
+                            db_status: 'SYNCED'
                         });
+                    } else {
+                        matchedInFeed.id = payload.new.id;
+                        matchedInFeed.db_status = 'SYNCED';
+                        matchedInFeed.isOffline = false;
                     }
                 }
 
@@ -2314,6 +2346,7 @@ function initCrossTabBroadcastListener() {
     } catch (e) {}
 }
 
+// 🟢 Modern UI Dynamic Stylesheet Injection
 function injectModernScanUIStyles() {
     if (document.getElementById('fastScanModernStyles')) return;
     const styleElem = document.createElement('style');
@@ -2327,18 +2360,19 @@ function injectModernScanUIStyles() {
             font-family: var(--font-mono, 'JetBrains Mono', monospace);
             font-weight: 700;
             color: var(--text-main, #0f172a);
+            letter-spacing: -0.2px;
         }
 
         .scan-flash-success { animation: scanFlashGreen 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important; }
         .scan-flash-error { animation: scanFlashRed 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important; }
         @keyframes scanFlashGreen {
             0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.8); border-color: #10b981 !important; background: #ecfdf5 !important; }
-            50% { box-shadow: 0 0 18px 4px rgba(16, 185, 129, 0.5); border-color: #10b981 !important; background: #d1fae5 !important; }
+            50% { box-shadow: 0 0 20px 4px rgba(16, 185, 129, 0.5); border-color: #10b981 !important; background: #d1fae5 !important; }
             100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
         @keyframes scanFlashRed {
             0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.8); border-color: #ef4444 !important; background: #fef2f2 !important; }
-            50% { box-shadow: 0 0 18px 4px rgba(239, 68, 68, 0.5); border-color: #ef4444 !important; background: #fee2e2 !important; }
+            50% { box-shadow: 0 0 20px 4px rgba(239, 68, 68, 0.5); border-color: #ef4444 !important; background: #fee2e2 !important; }
             100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
         .pulse-live-dot {
@@ -2347,21 +2381,22 @@ function injectModernScanUIStyles() {
             height: 8px;
             background: #10b981;
             border-radius: 50%;
-            box-shadow: 0 0 8px #10b981;
+            box-shadow: 0 0 10px #10b981;
             animation: pulseLiveDot 1.2s infinite alternate;
         }
         @keyframes pulseLiveDot {
             from { opacity: 0.4; transform: scale(0.85); }
-            to { opacity: 1; transform: scale(1.15); }
+            to { opacity: 1; transform: scale(1.2); }
         }
         .glass-hud-box {
-            margin-top: 12px;
-            padding: 14px;
-            background: var(--bg-surface, #ffffff);
+            margin-top: 14px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.85);
             border: 1px solid var(--border-color, #e2e8f0);
-            border-radius: 14px;
-            box-shadow: var(--shadow-sm);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
             font-size: 0.84rem;
+            backdrop-filter: blur(10px);
             transition: all 0.3s ease;
         }
         .feed-card-actions {
@@ -2370,32 +2405,53 @@ function injectModernScanUIStyles() {
             gap: 6px;
         }
         .btn-card-action {
-            background: var(--bg-subtle, #f1f5f9);
+            background: var(--bg-subtle, #f8fafc);
             border: 1px solid var(--border-color, #e2e8f0);
-            border-radius: 6px;
-            padding: 3px 8px;
-            font-size: 0.72rem;
-            color: var(--text-sub, #334155);
+            border-radius: 8px;
+            padding: 4px 10px;
+            font-size: 0.73rem;
+            font-weight: 600;
+            color: var(--text-sub, #475569);
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
         }
         .btn-card-action:hover {
             background: var(--primary-light, #e0f2fe);
             color: var(--primary-text, #0284c7);
             border-color: var(--primary-border, #bae6fd);
+            transform: translateY(-1px);
         }
         .btn-card-action.btn-card-delete:hover {
             background: #fee2e2 !important;
             color: #ef4444 !important;
             border-color: #fca5a5 !important;
         }
+        .modern-feed-card {
+            background: var(--bg-surface, #ffffff);
+            border: 1px solid var(--border-color, #e2e8f0);
+            border-radius: 14px;
+            padding: 12px 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+            transition: all 0.25s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .modern-feed-card:hover {
+            box-shadow: 0 10px 24px rgba(0,0,0,0.08);
+            border-color: var(--primary-border, #bae6fd);
+            transform: translateY(-2px);
+        }
         .camera-scanner-frame {
             position: absolute;
             width: 82%;
             height: 58%;
-            border: 2px solid rgba(56, 189, 248, 0.9);
-            border-radius: 14px;
-            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.52);
+            border: 2px solid rgba(56, 189, 248, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.58);
             pointer-events: none;
             overflow: hidden;
         }
@@ -2403,7 +2459,7 @@ function injectModernScanUIStyles() {
             width: 100%;
             height: 3px;
             background: linear-gradient(90deg, transparent, #ef4444, #38bdf8, #ef4444, transparent);
-            box-shadow: 0 0 14px #38bdf8;
+            box-shadow: 0 0 16px #38bdf8;
             position: absolute;
             top: 0;
             animation: cameraLaserScan 1.8s infinite ease-in-out;
@@ -2427,19 +2483,16 @@ function triggerReprintStickerFromFeed(sn, name = '', category = '', location = 
 
     if (typeof window.openPrintBarcodeModal === 'function') {
         window.openPrintBarcodeModal('SINGLE', sn);
-        showToast(`🖨️ ดีดไปที่ศูนย์พิมพ์บาร์โค้ดเรียบร้อย: S/N ${sn}`, false);
         return;
     } 
 
     if (typeof window.printSingleBarcode === 'function') {
         window.printSingleBarcode(sn);
-        showToast(`🖨️ เปิดการพิมพ์บาร์โค้ด: S/N ${sn}`, false);
         return;
     }
 
     if (typeof window.triggerBarcodePrint === 'function') {
         window.triggerBarcodePrint(sn);
-        showToast(`🖨️ พิมพ์บาร์โค้ด S/N ${sn}`, false);
         return;
     }
 
@@ -2454,9 +2507,9 @@ function triggerReprintStickerFromFeed(sn, name = '', category = '', location = 
     }
 
     copyToClipboard(sn);
-    showToast(`📋 คัดลอก S/N ${sn} สำเร็จแล้ว`, false);
 }
 
+// 🟢 Render รายการสแกนรับเข้าพร้อมแสดงสถานะการบันทึกเข้า DB บน UI การ์ดแบบทันสมัย
 function renderLiveInboundFeed() {
     const container = document.getElementById('liveInboundFeedContainer');
     if (!container) return;
@@ -2478,8 +2531,8 @@ function renderLiveInboundFeed() {
 
     if (recentInboundList.length === 0) {
         container.innerHTML = `
-            <div style="padding:28px 16px; text-align:center; color:var(--text-muted); font-size:0.88rem; background:var(--bg-surface); border-radius:var(--radius-md); border:1px solid var(--border-color);">
-                <i class="fa-solid fa-box-open" style="font-size:2.2rem; margin-bottom:8px; opacity:0.3; color:var(--primary);"></i><br/>
+            <div style="padding:32px 20px; text-align:center; color:var(--text-muted, #94a3b8); font-size:0.88rem; background:var(--bg-surface, #ffffff); border-radius:16px; border:1px solid var(--border-color, #e2e8f0); box-shadow: 0 4px 12px rgba(0,0,0,0.02);">
+                <i class="fa-solid fa-box-open" style="font-size:2.5rem; margin-bottom:10px; opacity:0.35; color:var(--primary, #0284c7);"></i><br/>
                 ยังไม่มีรายการรับเข้าในเซสชันนี้
             </div>`;
         return;
@@ -2491,15 +2544,15 @@ function renderLiveInboundFeed() {
     const currentActiveUserName = getCurrentUserFullName();
 
     let html = `
-        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+        <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div style="display:flex; align-items:center; gap:8px;">
                     <span class="pulse-live-dot"></span>
-                    <span style="font-size:0.88rem; font-weight:700; color:var(--text-main);">
-                        ประวัติการรับเข้าล่าสุด Realtime 100% (${filteredList.length}/${recentInboundList.length})
+                    <span style="font-size:0.9rem; font-weight:700; color:var(--text-main, #0f172a);">
+                        ประวัติการรับเข้าล่าสุด Realtime (${filteredList.length}/${recentInboundList.length})
                     </span>
                 </div>
-                <button class="btn btn-sm btn-secondary" onclick="clearRecentInboundFeedView()" style="font-size:0.72rem; padding:3px 8px;" title="ล้างหน้าจอแสดงผล">
+                <button class="btn btn-sm btn-secondary" onclick="clearRecentInboundFeedView()" style="font-size:0.75rem; padding:4px 10px; border-radius:8px;" title="ล้างหน้าจอแสดงผล">
                     <i class="fa-solid fa-eraser"></i> เคลียร์
                 </button>
             </div>
@@ -2509,17 +2562,17 @@ function renderLiveInboundFeed() {
                        oninput="onRecentFeedSearch(this.value)" 
                        value="${escapeHTML(recentFeedSearchQuery)}"
                        placeholder="🔍 ค้นหาในประวัติ (S/N, SKU, พิกัด, ผู้รับ)..." 
-                       style="width:100%; padding:6px 12px 6px 30px; font-size:0.78rem; border-radius:8px; border:1px solid var(--border-color); background:var(--bg-subtle); color:var(--text-main); outline:none;" />
-                <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:10px; top:50%; transform:translateY(-50%); font-size:0.75rem; color:var(--text-muted);"></i>
+                       style="width:100%; padding:8px 14px 8px 34px; font-size:0.82rem; border-radius:10px; border:1px solid var(--border-color, #cbd5e1); background:var(--bg-subtle, #f8fafc); color:var(--text-main, #0f172a); outline:none; transition:all 0.2s ease;" />
+                <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:0.8rem; color:var(--text-muted, #94a3b8);"></i>
             </div>
         </div>
-        <div class="inbound-feed-scroll-wrapper" style="max-height: calc(100vh - 330px); overflow-y: auto; padding-right: 8px; margin-right: -4px;">
-            <div class="inbound-feed-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:10px;">
+        <div class="inbound-feed-scroll-wrapper" style="max-height: calc(100vh - 330px); overflow-y: auto; padding-right: 6px; margin-right: -4px;">
+            <div class="inbound-feed-grid" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap:12px;">
     `;
 
     if (filteredList.length === 0) {
         html += `
-            <div style="grid-column: 1 / -1; padding:20px; text-align:center; color:var(--text-muted); font-size:0.82rem; background:var(--bg-surface); border-radius:8px; border:1px dashed var(--border-color);">
+            <div style="grid-column: 1 / -1; padding:24px; text-align:center; color:var(--text-muted, #94a3b8); font-size:0.84rem; background:var(--bg-surface, #ffffff); border-radius:12px; border:1px dashed var(--border-color, #cbd5e1);">
                 ไม่พบรายการประวัติที่ตรงกับ "${escapeHTML(recentFeedSearchQuery)}"
             </div>
         `;
@@ -2539,17 +2592,27 @@ function renderLiveInboundFeed() {
             const itemName = escapeHTML(item.name);
             const itemTime = escapeHTML(item.time || (item.created_at ? new Date(item.created_at).toLocaleTimeString('th-TH') : '-'));
 
+            // 🟢 กำหนดรูปแบบป้ายสถานะ DB (กำลังบันทึก / บันทึกสำเร็จ / รอบันทึกออฟไลน์)
+            let dbStatusBadgeHTML = '';
+            if (item.db_status === 'SYNCED' || (!item.isOffline && !item._pending && item.db_status !== 'PENDING' && item.db_status !== 'SYNCING')) {
+                dbStatusBadgeHTML = `<span class="badge-action inbound" style="background:linear-gradient(135deg, #ecfdf5, #d1fae5); color:#047857; border:1px solid #a7f3d0; padding:3px 9px; border-radius:12px; font-weight:700; font-size:0.72rem; display:inline-flex; align-items:center; gap:4px;"><i class="fa-solid fa-circle-check"></i> บันทึกเข้า DB สำเร็จ</span>`;
+            } else if (item.db_status === 'SYNCING') {
+                dbStatusBadgeHTML = `<span class="badge-action warning" style="background:linear-gradient(135deg, #eff6ff, #dbeafe); color:#1d4ed8; border:1px solid #bfdbfe; padding:3px 9px; border-radius:12px; font-weight:700; font-size:0.72rem; display:inline-flex; align-items:center; gap:4px;"><i class="fa-solid fa-spinner fa-spin"></i> กำลังบันทึกเข้า DB</span>`;
+            } else {
+                dbStatusBadgeHTML = `<span class="badge-action warning" style="background:linear-gradient(135deg, #fffbeb, #fef3c7); color:#b45309; border:1px solid #fde68a; padding:3px 9px; border-radius:12px; font-weight:700; font-size:0.72rem; display:inline-flex; align-items:center; gap:4px;"><i class="fa-solid fa-cloud-arrow-up fa-bounce"></i> รอบันทึกเข้า DB (ออฟไลน์)</span>`;
+            }
+
             html += `
                 <div class="feed-item modern-feed-card animate-feed-entry">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; width:100%; gap:6px;">
                         <div style="display:flex; flex-direction:column; width:100%;">
-                            <span style="font-size:0.68rem; color:var(--text-muted); font-weight:700;">หมายเลขซีเรียล (S/N):</span>
-                            <span class="full-sn-text" style="font-size:0.9rem;">
+                            <span style="font-size:0.68rem; color:var(--text-muted, #94a3b8); font-weight:700; text-transform:uppercase;">ซีเรียล S/N:</span>
+                            <span class="full-sn-text" style="font-size:0.92rem;">
                                 ${itemSn}
                             </span>
                         </div>
                         <div class="feed-card-actions" style="flex-shrink:0;">
-                            <button type="button" class="btn-card-action" onclick="copyToClipboard('${itemSn}'); showToast('📋 คัดลอก S/N สำเร็จ: ${itemSn}');" title="คัดลอก S/N">
+                            <button type="button" class="btn-card-action" onclick="copyToClipboard('${itemSn}');" title="คัดลอก S/N">
                                 <i class="fa-regular fa-copy"></i>
                             </button>
                             <button type="button" class="btn-card-action" onclick="triggerReprintStickerFromFeed('${itemSn}', '${itemName}', '${itemCategory}', '${item.location}')" title="ดีดไปที่ศูนย์พิมพ์บาร์โค้ด">
@@ -2561,19 +2624,23 @@ function renderLiveInboundFeed() {
                         </div>
                     </div>
 
-                    <div style="display:flex; flex-direction:column; gap:3px; background:var(--bg-subtle, #f1f5f9); padding:6px 10px; border-radius:8px; border:1px solid var(--border-color);">
-                        <span style="font-size:0.68rem; color:var(--text-muted); font-weight:700;">📍 พิกัดจัดเก็บ (1 คอลัมน์):</span>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1px; margin-bottom:2px;">
+                        ${dbStatusBadgeHTML}
+                    </div>
+
+                    <div style="display:flex; flex-direction:column; gap:4px; background:var(--bg-subtle, #f8fafc); padding:8px 12px; border-radius:10px; border:1px solid var(--border-color, #e2e8f0);">
+                        <span style="font-size:0.68rem; color:var(--text-muted, #64748b); font-weight:700;">📍 พิกัดจัดเก็บ (1 คอลัมน์):</span>
                         <div style="width:100%;">
                             ${locBadgeHTML}
                         </div>
                     </div>
 
-                    <div style="font-size:0.8rem; color:var(--text-sub); line-height:1.25; word-break:break-word;" title="[${itemCategory}] ${itemName}">
-                        <strong style="color:var(--primary-text);">[${itemCategory}]</strong> ${itemName}
+                    <div style="font-size:0.82rem; color:var(--text-sub, #475569); line-height:1.3; word-break:break-word;" title="[${itemCategory}] ${itemName}">
+                        <strong style="color:var(--primary-text, #0284c7);">[${itemCategory}]</strong> ${itemName}
                     </div>
 
-                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.72rem; color:var(--text-muted); border-top:1px dashed var(--border-color); padding-top:4px; margin-top:2px;">
-                        <span style="font-weight:600; color:var(--text-main);"><i class="fa-solid fa-user-check" style="color:var(--success);"></i> ${receiverName}</span>
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.73rem; color:var(--text-muted, #94a3b8); border-top:1px dashed var(--border-color, #e2e8f0); padding-top:6px; margin-top:2px;">
+                        <span style="font-weight:600; color:var(--text-main, #0f172a);"><i class="fa-solid fa-user-check" style="color:var(--success, #10b981);"></i> ${receiverName}</span>
                         <span><i class="fa-regular fa-clock"></i> ${itemTime} น.</span>
                     </div>
                 </div>

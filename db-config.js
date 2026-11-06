@@ -110,7 +110,7 @@ function requireOnline(msg) {
         if (typeof showToast === 'function') showToast(`📴 ${msg || 'ทำรายการนี้ต้องเชื่อมต่ออินเทอร์เน็ต'}`, true); 
         return false; 
     }
-    return true;
+    return true; 
 }
 
 function sanitizeForDb(item) {
@@ -281,6 +281,7 @@ function updateOnlineOfflineUI(isOnline) {
     }
 }
 
+// 🟢 ไล่ตามคิวบันทึกข้อมูลที่ค้างไว้เข้าฐานข้อมูล Supabase ทันทีเมื่อกลับมาออนไลน์
 async function syncOfflineQueueToDatabase() {
     if (isSyncing || !navigator.onLine) return;
     if (!offlineInboundQueue.length && !offlineActivityQueue.length) return;
@@ -357,6 +358,18 @@ async function syncOfflineQueueToDatabase() {
                 delete item._pending;
             }
         });
+    }
+
+    // 🟢 อัปเดตสถานะ DB ใน recentInboundList ให้เป็น SYNCED (บันทึกเข้า DB สำเร็จ)
+    if (typeof recentInboundList !== 'undefined' && Array.isArray(recentInboundList)) {
+        recentInboundList.forEach(item => {
+            if (item && item.sn && doneInboundSns.has(String(item.sn).trim().toLowerCase())) {
+                item.isOffline = false;
+                item.db_status = 'SYNCED';
+            }
+        });
+        if (typeof saveRecentInboundFeedToCache === 'function') saveRecentInboundFeedToCache();
+        if (typeof renderLiveInboundFeed === 'function') renderLiveInboundFeed();
     }
 
     isSyncing = false;
