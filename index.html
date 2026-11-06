@@ -2,8 +2,17 @@
 <html lang="th" data-theme="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="description" content="ระบบจัดการคลังสินค้า WMS Enterprise Engine ที่มีความเร็วสูงและเสถียรที่สุด">
     <title>ระบบจัดการคลังสินค้า WMS Enterprise Engine</title>
+
+    <!-- 🟢 0. Preconnect CDNs สำหรับเพิ่มความเร็วในการโหลด (DNS & TLS Handshake Acceleration) -->
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
     <!-- 🟢 1. External Libraries & Fonts CDN -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -162,7 +171,7 @@
                 </div>
             </div>
 
-            <!-- 🟢 ตรงกลาง: ช่องค้นหาเมนูด่วน (Command Palette Center Search Bar) -->
+            <!-- 🟢 ตรงกลาง: ช่องค้นหาเมนูด่วน -->
             <div class="navbar-center-container">
                 <div class="sidebar-search-box top-command-search-box">
                     <i class="fa-solid fa-magnifying-glass search-icon"></i>
@@ -283,20 +292,20 @@
                                 </div>
                             </div>
 
-<div class="form-grid">
-    <div class="form-group">
-        <label for="inboundMeter"><i class="fa-solid fa-gauge"></i> เลขมิเตอร์เริ่มต้น:</label>
-        <input type="number" id="inboundMeter" class="form-control mono font-bold" value="0">
-    </div>
-    <div class="form-group">
-        <label for="inboundSn"><i class="fa-solid fa-barcode"></i> หมายเลขซีเรียล (S/N):</label>
-        <div style="display:flex; gap:6px;">
-            <input type="text" id="inboundSn" class="form-control mono font-bold" placeholder="สแกน หรือ พิมพ์ S/N..." required>
-            <button type="button" class="btn btn-sm btn-primary" onclick="triggerMobileCameraScan()" title="สแกนกล้องมือถือ"><i class="fa-solid fa-camera"></i></button>
-            <button type="button" class="btn btn-sm btn-secondary" onclick="generateAutoSN()" title="สุ่ม S/N"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-        </div>
-    </div>
-</div>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="inboundMeter"><i class="fa-solid fa-gauge"></i> เลขมิเตอร์เริ่มต้น:</label>
+                                    <input type="number" id="inboundMeter" class="form-control mono font-bold" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="inboundSn"><i class="fa-solid fa-barcode"></i> หมายเลขซีเรียล (S/N):</label>
+                                    <div style="display:flex; gap:6px;">
+                                        <input type="text" id="inboundSn" class="form-control mono font-bold" placeholder="สแกน หรือ พิมพ์ S/N..." required>
+                                        <button type="button" class="btn btn-sm btn-primary" onclick="triggerMobileCameraScan()" title="สแกนกล้องมือถือ"><i class="fa-solid fa-camera"></i></button>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="generateAutoSN()" title="สุ่ม S/N"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+                                    </div>
+                                </div>
+                            </div>
 
                             <div class="card-title" style="font-size:0.95rem; margin-top:10px; margin-bottom:8px;"><i class="fa-solid fa-location-dot"></i> กำหนดพิกัดจัดเก็บสินค้า</div>
                             <div class="form-grid">
@@ -351,17 +360,40 @@
                 </div>
             </section>
 
-            <!-- 🟢 VIEW 3: จ่ายสินค้าออกจากคลัง (outbound-db.js) -->
+            <!-- 🟢 VIEW 3: จ่ายและส่งสินค้าออกจากคลัง / ออกใบส่งสินค้า (outbound-db.js) -->
             <section id="view-outbound" class="view-section">
                 <div class="card-header">
-                    <h2 class="card-title"><i class="fa-solid fa-truck-arrow-right" style="color:var(--warning);"></i> จ่ายสินค้าออกจากคลัง (Outbound Work Order)</h2>
+                    <h2 class="card-title"><i class="fa-solid fa-truck-arrow-right" style="color:var(--warning);"></i> จ่ายและส่งสินค้าออกจากคลัง / ออกใบส่งสินค้า (Delivery Note)</h2>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <button type="button" id="btnToggleOutboundLocVis" class="btn btn-sm btn-secondary" onclick="toggleOutboundLocationVisibility()" title="สลับเปิด/ปิดการแสดงพิกัดจัดเก็บเดิมในใบส่งสินค้า">
+                            <i class="fa-solid fa-eye-slash" id="outboundLocVisIcon"></i> <span id="outboundLocVisText">แสดงพิกัดเดิม: เปิด</span>
+                        </button>
+                    </div>
                 </div>
+
+                <!-- 🎯 พรีเซ็ต DATALIST สำหรับสมุดรายชื่อคลังสินค้าและลูกค้า -->
+                <datalist id="presetWarehouseOriginList">
+                    <option value="คลังสินค้าหลัก (Main Warehouse)">
+                    <option value="คลังสินค้า A (Bangna Hub)">
+                    <option value="คลังสินค้า B (Ramatibodi Branch)">
+                    <option value="บริษัท WMS Enterprise จำกัด">
+                    <option value="ศูนย์กระจายสินค้า Central WMS">
+                </datalist>
+
+                <datalist id="presetDestinationList">
+                    <option value="คลังสินค้าสาขา 2 (Branch 2 Warehouse)">
+                    <option value="คลังสินค้าสาขา 3 (Branch 3 Warehouse)">
+                    <option value="ลูกค้าทั่วไป / Walk-in Customer">
+                    <option value="บริษัท พันธมิตรการค้า จำกัด">
+                    <option value="ศูนย์ซ่อมบำรุงและเคลมสินค้า">
+                    <option value="โครงการไซต์งานก่อสร้าง A">
+                </datalist>
 
                 <div class="fullscreen-split-layout">
                     <div class="card">
                         <form onsubmit="handleAddOutboundToCart(event)" style="margin-bottom:1rem;">
                             <div class="form-group">
-                                <label for="outboundSn"><i class="fa-solid fa-barcode"></i> ยิงสแกนหมายเลขซีเรียล (S/N) เพื่อจ่ายออก:</label>
+                                <label for="outboundSn"><i class="fa-solid fa-barcode"></i> ยิงสแกนหมายเลขซีเรียล (S/N) เพื่อเตรียมส่งสินค้า:</label>
                                 <div style="display:flex; gap:8px;">
                                     <input type="text" id="outboundSn" class="form-control mono font-bold" placeholder="สแกน S/N สินค้าที่นี่..." autofocus>
                                     <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> เพิ่ม</button>
@@ -370,52 +402,81 @@
                         </form>
 
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                            <strong style="font-size:0.92rem;"><i class="fa-solid fa-cart-flatbed"></i> รายการสินค้าในใบสั่งจ่าย</strong>
+                            <strong style="font-size:0.92rem;"><i class="fa-solid fa-cart-flatbed"></i> รายการสินค้าในใบส่งสินค้า (จัดกลุ่มคัดกรองรุ่นอัตโนมัติ)</strong>
                             <span id="outboundCartCountBadge" class="badge-action outbound">0 รายการ</span>
                         </div>
 
-                        <div class="table-responsive" style="max-height: 250px; margin-bottom:1rem;">
+                        <div class="table-responsive" style="max-height: 260px; margin-bottom:1rem;">
                             <table class="modern-table">
                                 <thead>
                                     <tr>
                                         <th style="width:40px; text-align:center;">#</th>
-                                        <th>SKU</th>
-                                        <th>ชื่อรุ่น</th>
-                                        <th>S/N</th>
+                                        <th>SKU / รหัสสินค้า</th>
+                                        <th>รายละเอียด / ชื่อรุ่น</th>
+                                        <th>S/N (Serial Number)</th>
                                         <th>มิเตอร์</th>
-                                        <th>พิกัด</th>
+                                        <th class="outbound-loc-col">พิกัดเดิม</th>
                                         <th style="width:40px; text-align:center;">ลบ</th>
                                     </tr>
                                 </thead>
                                 <tbody id="outboundCartTableBody">
-                                    <tr><td colspan="7" style="text-align:center; padding:15px; color:var(--text-muted);">ยังไม่มีรายการ ยิงสแกน S/N เพื่อเพิ่มเข้าใบสั่งจ่าย</td></tr>
+                                    <tr><td colspan="7" style="text-align:center; padding:15px; color:var(--text-muted);">ยังไม่มีรายการ ยิงสแกน S/N เพื่อเพิ่มเข้าใบส่งสินค้า</td></tr>
                                 </tbody>
                             </table>
                         </div>
 
+                        <!-- 🟢 ช่องกรอกข้อมูลใบส่งสินค้า พร้อมสมุดรายชื่อคลังและลูกค้า (Presets Datalist) -->
                         <div class="form-grid">
-                            <div class="form-group">
-                                <label for="outboundDestination"><i class="fa-solid fa-building-flag"></i> สถานที่ปลายทาง / แผนกผู้รับ:</label>
-                                <input type="text" id="outboundDestination" class="form-control" placeholder="เช่น สาขาบางนา / ฝ่ายผลิต">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="outboundCompanyTitle"><i class="fa-solid fa-warehouse"></i> ชื่อคลังสินค้า / ตราบริษัท (ต้นทางผู้จัดส่ง):</label>
+                                <input type="text" id="outboundCompanyTitle" class="form-control font-bold" list="presetWarehouseOriginList" placeholder="พิมพ์หรือเลือกคลังสินค้าต้นทาง..." value="คลังสินค้าหลัก (Main Warehouse)">
                             </div>
-                            <div class="form-group">
-                                <label for="outboundDispatcher"><i class="fa-solid fa-user-gear"></i> ผู้จัดส่งสินค้า:</label>
-                                <input type="text" id="outboundDispatcher" class="form-control" placeholder="ระบุชื่อผู้จ่าย...">
-                            </div>
-                            <div class="form-group">
-                                <label for="outboundReceiver"><i class="fa-solid fa-user-check"></i> ผู้รับมอบสินค้า:</label>
-                                <input type="text" id="outboundReceiver" class="form-control" placeholder="ระบุชื่อผู้รับ...">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="outboundCustomerName"><i class="fa-solid fa-building"></i> ชื่อคลังปลายทาง / ชื่อผู้รับ / ชื่อลูกค้า:</label>
+                                <input type="text" id="outboundCustomerName" class="form-control font-bold" list="presetDestinationList" placeholder="พิมพ์หรือเลือกคลังปลายทาง หรือ ชื่อลูกค้า..." value="">
                             </div>
                         </div>
 
+                        <div class="form-grid">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label for="outboundCustomerAddress"><i class="fa-solid fa-location-dot"></i> ที่อยู่จัดส่ง / สถานที่ส่งมอบ / พิกัดปลายทาง:</label>
+                                <input type="text" id="outboundCustomerAddress" class="form-control" placeholder="กรอกที่อยู่ส่งมอบ หรือ พิกัดย้ายคลัง..." value="">
+                            </div>
+                            <div class="form-group">
+                                <label for="outboundContactPerson"><i class="fa-solid fa-address-book"></i> ผู้ติดต่อปลายทาง:</label>
+                                <input type="text" id="outboundContactPerson" class="form-control" placeholder="ระบุชื่อผู้ติดต่อ..." value="">
+                            </div>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="outboundSalesperson"><i class="fa-solid fa-user-tie"></i> พนักงานขาย / ผู้ประสานงาน:</label>
+                                <input type="text" id="outboundSalesperson" class="form-control" placeholder="ระบุชื่อผู้ประสานงาน..." value="">
+                            </div>
+                            <div class="form-group">
+                                <label for="outboundDispatcher"><i class="fa-solid fa-user-gear"></i> พนักงานผู้จ่ายสินค้า:</label>
+                                <input type="text" id="outboundDispatcher" class="form-control" placeholder="ระบุชื่อผู้จ่ายสินค้า..." value="">
+                            </div>
+                            <div class="form-group">
+                                <label for="outboundReceiver"><i class="fa-solid fa-user-check"></i> ผู้รับมอบสินค้า / ผู้รับ:</label>
+                                <input type="text" id="outboundReceiver" class="form-control" placeholder="ระบุชื่อผู้รับสินค้า..." value="">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="outboundDestination"><i class="fa-solid fa-note-sticky"></i> วัตถุประสงค์ / หมายเหตุการจัดส่ง (เช่น ส่งมอบลูกค้า / ย้ายคลัง / ส่งซ่อม):</label>
+                            <input type="text" id="outboundDestination" class="form-control" placeholder="กรอกวัตถุประสงค์การจัดส่งหรือหมายเหตุ..." value="">
+                        </div>
+
                         <button type="button" class="btn btn-warning" onclick="requestOutboundApproval()" style="width:100%; padding:12px; font-size:0.95rem; margin-top:10px;">
-                            <i class="fa-solid fa-paper-plane"></i> ยืนยันตัดจ่าย / ส่งคำขออนุมัติจ่ายออก
+                            <i class="fa-solid fa-paper-plane"></i> ยืนยันตัดจ่าย / ออกใบส่งสินค้า (DO No.)
                         </button>
                     </div>
 
+                    <!-- 🟢 การ์ดแสดงประวัติใบส่งสินค้าล่าสุด -->
                     <div class="card">
-                        <div class="card-title" style="margin-bottom:10px;"><i class="fa-solid fa-clock-rotate-left"></i> ประวัติใบสั่งจ่ายล่าสุด</div>
-                        <div id="liveOutboundFeedContainer" style="max-height: 500px; overflow-y: auto;">
+                        <div class="card-title" style="margin-bottom:10px;"><i class="fa-solid fa-clock-rotate-left"></i> ประวัติใบส่งสินค้าล่าสุด</div>
+                        <div id="liveOutboundFeedContainer" style="max-height: 540px; overflow-y: auto;">
                             <div style="text-align:center; padding:30px; color:var(--text-muted);">กำลังโหลดประวัติ...</div>
                         </div>
                     </div>
@@ -477,7 +538,7 @@
                     <div class="form-grid" style="margin-bottom:12px;">
                         <div class="form-group" style="grid-column: span 2;">
                             <label for="logSearchInput"><i class="fa-solid fa-magnifying-glass"></i> ค้นหาในประวัติ:</label>
-                            <input type="text" id="logSearchInput" class="form-control" placeholder="พิมพ์ชื่อผู้ใช้, S/N หรือ รายละเอียด..." oninput="filterActivityLogs()">
+                            <input type="text" id="logSearchInput" class="form-control" placeholder="พิมพ์ชื่อผู้ใช้, S/N หรือ รายรายละเอียด..." oninput="filterActivityLogs()">
                         </div>
                         <div class="form-group">
                             <label for="logUserSelect"><i class="fa-solid fa-user"></i> กรองตามผู้ใช้:</label>
@@ -842,13 +903,13 @@
     </div>
 </div>
 
-<!-- 🟢 7. กล่องแสดง Toast Notification (ซ่อนสมบูรณ์แบบไม่รบกวนหน้าเว็บ) -->
+<!-- 🟢 7. กล่องแสดง Toast Notification -->
 <div id="toastAlert" class="toast" style="display:none !important; opacity:0 !important; visibility:hidden !important; position:fixed !important; pointer-events:none !important;">
     <i class="fa-solid fa-circle-info"></i>
     <span id="toastMessage"></span>
 </div>
 
-<!-- 🟢 8. โหลดไฟล์ Script Engines ทั้งหมดตามลำดับการพึ่งพา (Dependency Order) -->
+<!-- 🟢 8. โหลดไฟล์ Script Engines ทั้งหมดตามลำดับการพึ่งพา -->
 <script src="db-config.js"></script>
 <script src="utils.js"></script>
 <script src="navigation.js"></script>

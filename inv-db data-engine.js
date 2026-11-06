@@ -1,5 +1,5 @@
 // =========================================================================
-// 📌 [ส่วนที่ 2] WMS DATABASE ENGINE, CACHE & CAPACITY CALCULATOR (FULL VERSION v12.3 ULTRA REAL-TIME 100%)
+// 📌 [ส่วนที่ 2] WMS DATABASE ENGINE, CACHE & CAPACITY CALCULATOR (FULL VERSION v12.7 ULTRA REAL-TIME UNLIMITED SKU)
 // =========================================================================
 
 // Safety Safeguards Fallback
@@ -29,9 +29,14 @@ if (typeof window.formatLocationCode !== 'function') {
     };
 }
 
+// โหลดค่ายอด Master SKU รวมล่าสุดจาก Cache ตั้งแต่เริ่มต้นไฟล์เพื่อป้องกันตัวเลขแฟลชเปลี่ยนยอด
+const MASTER_PRODUCTS_COUNT_CACHE_KEY = 'WMS_MASTER_PRODUCTS_COUNT_CACHE';
+const initialCachedMasterCount = parseInt(localStorage.getItem(MASTER_PRODUCTS_COUNT_CACHE_KEY) || '0');
+
 // Global State Variables
 window.globalInventoryData = window.globalInventoryData || [];
 window.globalMasterProducts = window.globalMasterProducts || [];
+window.totalMasterProductsCount = window.totalMasterProductsCount || initialCachedMasterCount || 0; // ตัวแปรนับจำนวน Master SKU ทั้งหมดใน DB
 window.occupiedLocationsSet = window.occupiedLocationsSet || new Set();
 window.selectedItemSnSet = window.selectedItemSnSet || new Set();
 window.currentFilteredItems = window.currentFilteredItems || [];
@@ -57,12 +62,35 @@ function getSupabaseClient() {
     return null;
 }
 
-function fetchWithTimeout(promise, ms = 6000) {
+function fetchWithTimeout(promise, ms = 8000) {
     return Promise.race([
         promise,
         new Promise((_, reject) => setTimeout(() => reject(new Error('Database Request Timeout')), ms))
     ]);
 }
+
+// 🟢 ดึงเฉพาะจำนวนรวมทั้งหมดของ Master SKU (products) จาก DB แบบด่วนที่สุด พร้อมบันทึกลง Cache
+async function fetchTotalMasterProductsCount() {
+    if (!navigator.onLine) return window.totalMasterProductsCount;
+    const client = getSupabaseClient();
+    if (!client) return window.totalMasterProductsCount;
+
+    try {
+        const { count, error } = await client
+            .from('products')
+            .select('*', { count: 'exact', head: true });
+
+        if (!error && count !== null && count > 0) {
+            window.totalMasterProductsCount = count;
+            try { localStorage.setItem(MASTER_PRODUCTS_COUNT_CACHE_KEY, String(count)); } catch(e) {}
+            if (typeof updateKPIs === 'function') updateKPIs();
+        }
+    } catch (e) {
+        console.warn('Fast Master Products count query warning:', e);
+    }
+    return window.totalMasterProductsCount;
+}
+window.fetchTotalMasterProductsCount = fetchTotalMasterProductsCount;
 
 // 🟢 ศูนย์กลางการรีเฟรช UI หน้าเช็คสต็อกสินค้าและทุกส่วนแบบ Real-time 100%
 function autoRefreshActiveView() {
@@ -95,18 +123,22 @@ function notifyWmsDataChanged(actionType, payloadData) {
 }
 window.notifyWmsDataChanged = notifyWmsDataChanged;
 
+// 🟢 ลงทะเบียน Realtime Subscriptions สองตารางคู่กัน (warehouse_items & products Master SKU)
 function setupRealtimeSubscription() {
     const client = getSupabaseClient();
     if (client && typeof client.channel === 'function' && !realtimeSubChannel) {
         try {
             realtimeSubChannel = client
-                .channel('wms_warehouse_items_realtime_v3')
+                .channel('wms_warehouse_realtime_v7')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'warehouse_items' }, (payload) => {
                     handleRealtimeDataChange('SUPABASE_REALTIME', payload);
                 })
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, (payload) => {
+                    handleMasterProductsRealtimeChange(payload);
+                })
                 .subscribe((status) => {
                     if (status === 'SUBSCRIBED') {
-                        console.log('⚡ WMS Engine v12.3: Realtime Websocket Sync Active');
+                        console.log('⚡ WMS Engine v12.7: Realtime Websocket Sync Active (Warehouse Items & Master SKUs)');
                     }
                 });
         } catch (err) {
@@ -127,7 +159,6 @@ function setupRealtimeSubscription() {
             } catch (e) {}
         }
 
-        // 🟢 เมื่อกลับมาโฟกัสหน้าจอ ให้รีเฟรชข้อมูลเบื้องหลังสดๆ ทันที
         window.removeEventListener('focus', handleWindowFocusSync);
         window.addEventListener('focus', handleWindowFocusSync);
 
@@ -148,7 +179,7 @@ function handleVisibilitySync() {
     }
 }
 
-// 🟢 ระบบ Background Heartbeat Sync คอยตรวจสอบความถูกต้องของฐานข้อมูลในเบื้องหลังแบบเงียบๆ ทุก 4 วินาที
+// 🟢 ระบบ Background Heartbeat Sync ตรวจสอบความถูกต้องของฐานข้อมูลเบื้องหลังตลอดเวลาทุก 4 วินาที
 function startBackgroundHeartbeatSync() {
     if (backgroundHeartbeatInterval) clearInterval(backgroundHeartbeatInterval);
     backgroundHeartbeatInterval = setInterval(() => {
@@ -162,7 +193,53 @@ function handleLocalDataChangeEvent(event) {
     handleRealtimeDataChange('LOCAL_EVENT', event ? event.detail : null);
 }
 
-// 🟢 จัดการการเปลี่ยนแปลงข้อมูล Realtime แบบไร้ดีเลย์ (Immediate Instant Refresh 0ms)
+// 🟢 อัปเดตข้อมูล Master SKU ในหน่วยความจำอย่างสดๆ เรียลไทม์เมื่อมีการเพิ่ม/ลบ/แก้ไข SKU ใน DB
+function handleMasterProductsRealtimeChange(payload) {
+    if (!payload) return;
+    const eventType = payload.eventType || payload.type;
+    const newRow = payload.new || (payload.payload && payload.payload.item ? payload.payload.item : payload.payload);
+    const oldRow = payload.old || payload.payload;
+
+    if (!Array.isArray(window.globalMasterProducts)) {
+        window.globalMasterProducts = [];
+    }
+
+    if (eventType === 'INSERT' && newRow) {
+        const exists = window.globalMasterProducts.some(p => 
+            (p.id && newRow.id && String(p.id) === String(newRow.id)) || 
+            (p.sku && newRow.sku && String(p.sku).trim().toLowerCase() === String(newRow.sku).trim().toLowerCase())
+        );
+        if (!exists) {
+            window.globalMasterProducts.push(newRow);
+            window.totalMasterProductsCount = Math.max(window.totalMasterProductsCount + 1, window.globalMasterProducts.length);
+            try { localStorage.setItem(MASTER_PRODUCTS_COUNT_CACHE_KEY, String(window.totalMasterProductsCount)); } catch(e) {}
+        }
+    } else if (eventType === 'UPDATE' && newRow) {
+        const idx = window.globalMasterProducts.findIndex(p => 
+            (p.id && newRow.id && String(p.id) === String(newRow.id)) || 
+            (p.sku && newRow.sku && String(p.sku).trim().toLowerCase() === String(newRow.sku).trim().toLowerCase())
+        );
+        if (idx !== -1) {
+            window.globalMasterProducts[idx] = { ...window.globalMasterProducts[idx], ...newRow };
+        }
+    } else if (eventType === 'DELETE' && oldRow) {
+        window.globalMasterProducts = window.globalMasterProducts.filter(p => 
+            !(oldRow.id && p.id && String(p.id) === String(oldRow.id)) &&
+            !(oldRow.sku && p.sku && String(p.sku).trim().toLowerCase() === String(oldRow.sku).trim().toLowerCase())
+        );
+        if (window.totalMasterProductsCount > 0) {
+            window.totalMasterProductsCount = Math.max(0, window.totalMasterProductsCount - 1);
+            try { localStorage.setItem(MASTER_PRODUCTS_COUNT_CACHE_KEY, String(window.totalMasterProductsCount)); } catch(e) {}
+        }
+    }
+
+    fetchTotalMasterProductsCount();
+    updateMasterProductsStatUI();
+    autoRefreshActiveView();
+}
+window.handleMasterProductsRealtimeChange = handleMasterProductsRealtimeChange;
+
+// 🟢 จัดการการเปลี่ยนแปลงข้อมูล Realtime ของ warehouse_items แบบไร้ดีเลย์ (0ms Instant Refresh)
 function handleRealtimeDataChange(source, payload) {
     if (payload) {
         const eventType = payload.eventType || payload.type;
@@ -196,18 +273,16 @@ function handleRealtimeDataChange(source, payload) {
             }
         }
 
-        // ⚡ วาด UI หน้าเช็คสต็อกใหม่ทันที 0ms (Zero Delay)
         autoRefreshActiveView();
     }
 
-    // เรียกดึงข้อมูล DB สดในเบื้องหลังทันทีโดยไม่รอนาน
     clearTimeout(realtimeDebounceTimer);
     realtimeDebounceTimer = setTimeout(() => {
         refreshInventoryDataSilently();
     }, 50);
 }
 
-// 🟢 ดึงข้อมูลสินค้าล่าสุดจาก Supabase DB เบื้องหลังอย่างรวดเร็ว โดยไม่ขัดจังหวะการทำงานของผู้ใช้
+// 🟢 ดึงข้อมูลสินค้าและ Master SKU ล่าสุดจาก DB ในเบื้องหลังอย่างรวดเร็ว โดยไม่ขัดจังหวะการทำงาน
 async function refreshInventoryDataSilently() {
     try {
         const fetchedData = await fetchAllWarehouseItems();
@@ -220,6 +295,9 @@ async function refreshInventoryDataSilently() {
             mergePendingIntoInventory();
             autoRefreshActiveView();
         }
+
+        await fetchTotalMasterProductsCount();
+        await loadMasterProductsFromDB();
     } catch (e) {
         console.warn('Silent refresh background notice:', e);
     }
@@ -498,6 +576,7 @@ function showTableLoadingState() {
     }
 }
 
+// 🟢 ดึงข้อมูลสินค้าทั้งหมดจากคลังด้วย Loop Pagination ต่อเนื่อง (ดึงข้ามขีดจำกัด 2,000+ รายการ)
 async function fetchAllWarehouseItems() {
     if (!navigator.onLine) {
         const cached = localStorage.getItem('WMS_LOCAL_INVENTORY_CACHE');
@@ -525,12 +604,12 @@ async function fetchAllWarehouseItems() {
                 .order('created_at', { ascending: false })
                 .range(from, from + step - 1);
 
-            const { data, error } = await fetchWithTimeout(queryPromise, 6000);
+            const { data, error } = await fetchWithTimeout(queryPromise, 8000);
             if (error) throw error;
 
             if (data && data.length > 0) {
                 allData = allData.concat(data);
-                from += step;
+                from += data.length;
                 if (data.length < step) hasMore = false;
             } else {
                 hasMore = false;
@@ -548,12 +627,18 @@ async function fetchAllWarehouseItems() {
     }
 }
 
+// 🟢 ดึงข้อมูล Master Products (SKU) ทั้งหมดแบบ Pagination ต่อเนื่อง
 async function loadMasterProductsFromDB() {
     try {
         if (!navigator.onLine) {
             const cachedMaster = localStorage.getItem('WMS_MASTER_PRODUCTS_CACHE');
             if (cachedMaster) {
-                try { window.globalMasterProducts = JSON.parse(cachedMaster); } catch(err) {}
+                try { 
+                    window.globalMasterProducts = JSON.parse(cachedMaster); 
+                    if (window.globalMasterProducts.length > window.totalMasterProductsCount) {
+                        window.totalMasterProductsCount = window.globalMasterProducts.length;
+                    }
+                } catch(err) {}
             }
             updateMasterProductsStatUI();
             return;
@@ -565,36 +650,30 @@ async function loadMasterProductsFromDB() {
             return;
         }
 
+        await fetchTotalMasterProductsCount();
+
         let allProducts = [];
         let from = 0;
         const step = 1000;
         let hasMore = true;
 
         while (hasMore) {
-            let reqPromise = client
+            const reqPromise = client
                 .from('products')
                 .select('*')
-                .order('id', { ascending: true })
                 .range(from, from + step - 1);
 
             let response;
             try {
-                response = await fetchWithTimeout(reqPromise, 6000);
+                response = await fetchWithTimeout(reqPromise, 8000);
             } catch (err) {
-                reqPromise = client
-                    .from('products')
-                    .select('*')
-                    .order('sku', { ascending: true })
-                    .range(from, from + step - 1);
-                response = await fetchWithTimeout(reqPromise, 6000);
+                response = { error: err, data: null };
             }
 
-            if (response.error) break;
-
-            const data = response.data;
-            if (data && data.length > 0) {
+            const data = response ? response.data : null;
+            if (data && Array.isArray(data) && data.length > 0) {
                 allProducts = allProducts.concat(data);
-                from += step;
+                from += data.length;
                 if (data.length < step) hasMore = false;
             } else {
                 hasMore = false;
@@ -603,16 +682,26 @@ async function loadMasterProductsFromDB() {
 
         if (allProducts.length > 0) {
             window.globalMasterProducts = allProducts;
+            if (allProducts.length > window.totalMasterProductsCount) {
+                window.totalMasterProductsCount = allProducts.length;
+                try { localStorage.setItem(MASTER_PRODUCTS_COUNT_CACHE_KEY, String(allProducts.length)); } catch(e) {}
+            }
             try { localStorage.setItem('WMS_MASTER_PRODUCTS_CACHE', JSON.stringify(allProducts)); } catch (quotaErr) {}
         } else {
             const cachedMaster = localStorage.getItem('WMS_MASTER_PRODUCTS_CACHE');
             if (cachedMaster) {
-                try { window.globalMasterProducts = JSON.parse(cachedMaster); } catch(err) {}
+                try { 
+                    window.globalMasterProducts = JSON.parse(cachedMaster); 
+                    if (window.globalMasterProducts.length > window.totalMasterProductsCount) {
+                        window.totalMasterProductsCount = window.globalMasterProducts.length;
+                    }
+                } catch(err) {}
             }
         }
 
         updateMasterProductsStatUI();
     } catch(e) {
+        console.warn('loadMasterProductsFromDB exception:', e);
         const cachedMaster = localStorage.getItem('WMS_MASTER_PRODUCTS_CACHE');
         if (cachedMaster) {
             try { window.globalMasterProducts = JSON.parse(cachedMaster); } catch(err) {}
@@ -624,7 +713,10 @@ async function loadMasterProductsFromDB() {
 function updateMasterProductsStatUI() {
     const statElem = document.getElementById('inboundMasterProductsStatText');
     if (statElem) {
-        const count = window.globalMasterProducts.length;
+        const count = (typeof window.totalMasterProductsCount !== 'undefined' && window.totalMasterProductsCount > 0)
+            ? window.totalMasterProductsCount
+            : (window.globalMasterProducts ? window.globalMasterProducts.length : 0);
+
         if (count > 0) {
             statElem.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#10b981;"></i> เชื่อมต่อ DB สมบูรณ์ · สินค้า Master <strong class="mono" style="color:#0f172a; font-size:0.95rem; background:#f1f5f9; padding:2px 6px; border-radius:4px; border:1px solid #cbd5e1;">${count.toLocaleString()}</strong> รายการ`;
         } else {
@@ -668,6 +760,7 @@ async function loadDataFromDatabase() {
         });
 
         mergePendingIntoInventory();
+        await fetchTotalMasterProductsCount();
         await loadMasterProductsFromDB();
         if (typeof loadWarehouseConfigsFromDB === 'function') await loadWarehouseConfigsFromDB();
 

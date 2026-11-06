@@ -1,8 +1,9 @@
 // =========================================================================
-// --- MODULE 4: OUTBOUND ORDERS DATABASE ENGINE (HIGH-PERFORMANCE & A4 OPTIMIZED) ---
+// --- MODULE 4: OUTBOUND ORDERS ENGINE & OFFICIAL DELIVERY NOTE GENERATOR ---
+// --- (HIGH-SECURITY & HIGH-CAPACITY SERIAL NUMBER PRINT LAYOUT) -----------
 // =========================================================================
 
-// Safe Escape HTML Helper Fallback (Secures against XSS vulnerabilities)
+// 🟢 Safe Escape HTML Helper (Secures against XSS & HTML Injection vulnerabilities)
 if (typeof escapeHTML !== 'function') {
     function escapeHTML(str) {
         if (str === null || str === undefined) return '';
@@ -11,28 +12,43 @@ if (typeof escapeHTML !== 'function') {
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
+            .replace(/'/g, '&#039;')
+            .replace(/\//g, '&#x2F;');
     }
 }
 
-// Secure Dynamic Supabase Instance Getter
+// 🟢 Secure Dynamic Supabase Instance Getter
 function getSupabaseClient() {
-    if (typeof _supabase !== 'undefined' && _supabase) {
-        return _supabase;
-    }
-    if (typeof window !== 'undefined' && window.ENV && window.ENV.SUPABASE_CLIENT) {
-        return window.ENV.SUPABASE_CLIENT;
-    }
+    if (typeof _supabase !== 'undefined' && _supabase) return _supabase;
+    if (typeof window !== 'undefined' && window.ENV && window.ENV.SUPABASE_CLIENT) return window.ENV.SUPABASE_CLIENT;
     return null;
 }
 
-// Local Storage Cache Key สำหรับบันทึกประวัติใบสั่งจ่าย 100% ป้องกันข้อมูลสูญหายและเรียกดูได้อย่างรวดเร็ว
+// Local Storage Cache Key สำหรับประวัติใบสั่งจ่าย/ใบส่งสินค้า
 const LOCAL_OUTBOUND_CACHE_KEY = 'wh_outbound_orders_history_cache';
 
 let recentOutboundOrders = [];
 let outboundCartItems = [];
+let showOutboundLocationInDoc = true; // สลับเปิด/ปิดการแสดงพิกัดจัดเก็บเดิม
 
-// Helper: บันทึกประวัติใบสั่งจ่ายลง Local Cache เพื่อความรวดเร็วสูงสุด 100%
+// 🟢 Toggle Visibility for Original Location Code
+function toggleOutboundLocationVisibility() {
+    showOutboundLocationInDoc = !showOutboundLocationInDoc;
+    const btnText = document.getElementById('outboundLocVisText');
+    const btnIcon = document.getElementById('outboundLocVisIcon');
+    
+    if (btnText) btnText.textContent = `แสดงพิกัดเดิม: ${showOutboundLocationInDoc ? 'เปิด' : 'ซ่อน'}`;
+    if (btnIcon) btnIcon.className = showOutboundLocationInDoc ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+
+    const cols = document.querySelectorAll('.outbound-loc-col');
+    cols.forEach(col => col.style.display = showOutboundLocationInDoc ? '' : 'none');
+
+    if (typeof showToast === 'function') {
+        showToast(`📌 สลับการแสดงพิกัดจัดเก็บเดิม: ${showOutboundLocationInDoc ? 'แสดงผล' : 'ซ่อนในใบงาน'}`);
+    }
+}
+
+// 🟢 Local Storage History Cache Handlers
 function saveOutboundHistoryToLocalCache(orders) {
     try {
         if (Array.isArray(orders)) {
@@ -52,6 +68,7 @@ function getOutboundHistoryFromLocalCache() {
     }
 }
 
+// 🟢 Add Item to Cart Engine
 function handleAddOutboundToCart(e) {
     if (e) e.preventDefault();
     const snInput = document.getElementById('outboundSn');
@@ -63,8 +80,7 @@ function handleAddOutboundToCart(e) {
     const inventory = (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) ? globalInventoryData : [];
     const lowerSn = sn.toLowerCase();
     
-    // ค้นหารายการสินค้าแบบ Fast Match
-    const item = inventory.find(i => i && i.sn && i.sn.toLowerCase() === lowerSn);
+    const item = inventory.find(i => i && i.sn && String(i.sn).toLowerCase() === lowerSn);
     if(!item) {
         if (typeof playErrorSound === 'function') playErrorSound();
         if (typeof showToast === 'function') showToast(`❌ ไม่พบ S/N "${escapeHTML(sn)}" ในระบบสต็อก!`, true);
@@ -72,9 +88,9 @@ function handleAddOutboundToCart(e) {
         return;
     }
 
-    if(outboundCartItems.some(i => i && i.sn && i.sn.toLowerCase() === lowerSn)) {
+    if(outboundCartItems.some(i => i && i.sn && String(i.sn).toLowerCase() === lowerSn)) {
         if (typeof playErrorSound === 'function') playErrorSound();
-        if (typeof showToast === 'function') showToast(`⚠ S/N "${escapeHTML(sn)}" มีอยู่ในรายการตัดจ่ายแล้ว`, true);
+        if (typeof showToast === 'function') showToast(`⚠ S/N "${escapeHTML(sn)}" มีอยู่ในรายการส่งสินค้าแล้ว`, true);
         snInput.select();
         return;
     }
@@ -87,89 +103,131 @@ function handleAddOutboundToCart(e) {
     renderOutboundCartTable();
 }
 
+// 🟢 Render Outbound Cart Table with SKU Model Grouping
 function renderOutboundCartTable() {
     const tbody = document.getElementById('outboundCartTableBody');
     if (!tbody) return;
 
     const cartBadge = document.getElementById('outboundCartCountBadge');
-    if (cartBadge) {
-        cartBadge.textContent = `${outboundCartItems.length} รายการ`;
-    }
+    if (cartBadge) cartBadge.textContent = `${outboundCartItems.length} รายการ`;
 
     if(outboundCartItems.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:15px; color:var(--text-muted);">ยังไม่มีรายการ ยิงสแกน S/N เพื่อเพิ่มเข้าใบสั่งจ่าย</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:15px; color:var(--text-muted);">ยังไม่มีรายการ ยิงสแกน S/N เพื่อเพิ่มเข้าใบส่งสินค้า</td></tr>`;
         return;
     }
 
+    const groupedMap = groupCartItemsBySKU(outboundCartItems);
     let html = '';
-    outboundCartItems.forEach((item, idx) => {
-        const formattedLoc = (typeof formatLocationCode === 'function') ? formatLocationCode(item.location) : item.location;
+    let groupIndex = 1;
+    let globalItemIndex = 1;
+
+    groupedMap.forEach((group) => {
         html += `
-            <tr>
-                <td style="text-align:center;" class="mono">${idx + 1}</td>
-                <td><code class="mono font-bold">${escapeHTML(item.category || 'N/A')}</code></td>
-                <td>${escapeHTML(item.name || '-')}</td>
-                <td><code class="mono font-bold">${escapeHTML(item.sn)}</code></td>
-                <td class="mono font-bold" style="color:var(--warning);">${Number(item.meter || 0).toLocaleString()}</td>
-                <td><span class="badge-location mono">${escapeHTML(formattedLoc)}</span></td>
-                <td style="text-align:center;">
-                    <button class="btn btn-sm btn-danger" style="padding:2px 6px;" onclick="removeFromOutboundCart('${escapeHTML(item.sn)}')">&times;</button>
+            <tr style="background:var(--bg-subtle); border-top:2px solid var(--border-strong);">
+                <td colspan="7" style="padding:6px 10px; font-weight:700; color:var(--primary); font-size:0.85rem;">
+                    <i class="fa-solid fa-layer-group" style="margin-right:6px;"></i> ${groupIndex}. รุ่น: ${escapeHTML(group.name)} (รหัส: ${escapeHTML(group.sku)}) — <span style="color:var(--success);">${group.items.length} เครื่อง</span>
                 </td>
             </tr>
         `;
+
+        group.items.forEach(item => {
+            const formattedLoc = (typeof formatLocationCode === 'function') ? formatLocationCode(item.location) : item.location;
+            const locDisp = showOutboundLocationInDoc ? '' : 'style="display:none;"';
+
+            html += `
+                <tr>
+                    <td style="text-align:center;" class="mono">${globalItemIndex}</td>
+                    <td><code class="mono font-bold">${escapeHTML(item.category || 'N/A')}</code></td>
+                    <td>${escapeHTML(item.name || '-')}</td>
+                    <td><code class="mono font-bold" style="color:var(--primary);">${escapeHTML(item.sn)}</code></td>
+                    <td class="mono font-bold" style="color:var(--warning);">${Number(item.meter || 0).toLocaleString()}</td>
+                    <td class="outbound-loc-col" ${locDisp}><span class="badge-location mono">${escapeHTML(formattedLoc)}</span></td>
+                    <td style="text-align:center;">
+                        <button class="btn btn-sm btn-danger" style="padding:2px 6px;" onclick="removeFromOutboundCart('${escapeHTML(item.sn)}')">&times;</button>
+                    </td>
+                </tr>
+            `;
+            globalItemIndex++;
+        });
+        groupIndex++;
     });
+
     tbody.innerHTML = html;
 }
 
 function removeFromOutboundCart(sn) {
-    outboundCartItems = outboundCartItems.filter(i => i.sn !== sn);
+    outboundCartItems = outboundCartItems.filter(i => String(i.sn) !== String(sn));
     renderOutboundCartTable();
 }
 
-// 🟢 ส่งคำขอจ่ายสินค้าออกสำหรับ User ทั่วไป หรือดำเนินการตัดจ่ายทันทีสำหรับ Admin
+// Helper: Grouping Logic Processor
+function groupCartItemsBySKU(itemsList) {
+    const map = new Map();
+    if (!Array.isArray(itemsList)) return map;
+
+    itemsList.forEach(item => {
+        if (!item) return;
+        const key = `${item.category || 'N/A'} - ${item.name || 'ไม่ระบุรุ่น'}`;
+        if (!map.has(key)) {
+            map.set(key, {
+                sku: item.category || 'N/A',
+                name: item.name || 'ไม่ระบุรุ่น',
+                items: []
+            });
+        }
+        map.get(key).items.push(item);
+    });
+    return map;
+}
+
+// 🟢 Request Approval or Direct Outbound Execution (ใบส่งสินค้า / ใบย้ายคลัง)
 async function requestOutboundApproval() {
     if (typeof requireOnline === 'function' && !requireOnline('ตัดจ่าย/ส่งคำขอต้องเชื่อมต่ออินเทอร์เน็ต')) return;
     if(outboundCartItems.length === 0) {
-        alert("⚠ กรุณายิงสแกน S/N สินค้าอย่างน้อย 1 รายการเพื่อตัดจ่าย");
+        alert("⚠ กรุณายิงสแกน S/N สินค้าอย่างน้อย 1 รายการเพื่อออกใบส่งสินค้า");
         return;
     }
 
-    const destElem = document.getElementById('outboundDestination');
-    const dispatcherElem = document.getElementById('outboundDispatcher');
-    const receiverElem = document.getElementById('outboundReceiver');
+    const companyTitle = document.getElementById('outboundCompanyTitle')?.value.trim() || '';
+    const customerName = document.getElementById('outboundCustomerName')?.value.trim() || '';
+    const customerAddress = document.getElementById('outboundCustomerAddress')?.value.trim() || '';
+    const contactPerson = document.getElementById('outboundContactPerson')?.value.trim() || '';
+    const salesperson = document.getElementById('outboundSalesperson')?.value.trim() || '';
+    const dest = document.getElementById('outboundDestination')?.value.trim() || '';
+    const dispatcher = document.getElementById('outboundDispatcher')?.value.trim() || '';
+    const receiver = document.getElementById('outboundReceiver')?.value.trim() || '';
 
-    const dest = destElem ? destElem.value.trim() : '';
-    const dispatcher = dispatcherElem ? dispatcherElem.value.trim() : '';
-    const receiver = receiverElem ? receiverElem.value.trim() : '';
+    const snList = outboundCartItems.map(i => String(i.sn));
+    const docNo = `DO${Math.floor(1000000 + Math.random() * 9000000)}`;
 
-    if(!dest || !dispatcher || !receiver) {
-        alert("⚠️ กรุณากรอกข้อมูลสถานที่จ่าย, ผู้ส่ง และ ผู้รับ ให้ครบถ้วน");
-        return;
-    }
+    const orderMeta = {
+        company_title: companyTitle,
+        doc_no: docNo,
+        inv_no: docNo, // เพื่อความข้ามรุ่นฐานข้อมูล
+        customer_name: customerName,
+        customer_address: customerAddress,
+        contact_person: contactPerson,
+        salesperson: salesperson,
+        destination: dest,
+        dispatcher: dispatcher,
+        receiver: receiver,
+        sn_list: snList,
+        items_count: outboundCartItems.length,
+        items_detail: [...outboundCartItems],
+        show_location: showOutboundLocationInDoc,
+        created_at: new Date().toISOString()
+    };
 
-    const snList = outboundCartItems.map(i => i.sn);
-    const workOrderNo = `WO-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    // 🟢 หากผู้ใช้เป็น User ทั่วไป -> ส่งคำขออนุมัติจ่ายออกอย่างรวดเร็วไปยัง Admin
     if (typeof currentUser !== 'undefined' && currentUser && currentUser.role === 'user') {
         if (typeof createPendingApprovalRequest === 'function') {
             const success = await createPendingApprovalRequest(
                 'OUTBOUND', 
-                `[ใบงาน ${workOrderNo}] ขอตัดจ่ายสินค้าออกจากคลังไปยัง: ${dest} (${snList.length} รายการ)`, 
+                `[ใบส่งสินค้า ${docNo}] เบิก/ย้ายสินค้า: ${customerName || 'ไม่ระบุผู้รับ'} (${snList.length} รายการ)`, 
                 snList, 
-                { 
-                    work_order_no: workOrderNo,
-                    destination: dest, 
-                    dispatcher: dispatcher, 
-                    receiver: receiver, 
-                    snList: snList,
-                    cartDetails: [...outboundCartItems],
-                    created_at: new Date().toISOString()
-                }
+                orderMeta
             );
-            
             if (success) {
-                if (typeof showToast === 'function') showToast(`🚀 ส่งคำขอตัดจ่ายใบงาน ${workOrderNo} (${snList.length} รายการ) ไปยังแอดมินเรียบร้อยแล้ว`);
+                if (typeof showToast === 'function') showToast(`🚀 ส่งคำขอออกใบส่งสินค้าไปยังแอดมินเรียบร้อยแล้ว`);
                 outboundCartItems = [];
                 renderOutboundCartTable();
             }
@@ -177,90 +235,60 @@ async function requestOutboundApproval() {
         return;
     }
 
-    // 🟢 หากเป็น Admin -> ดำเนินการตัดจ่ายลง DB โดยตรง
-    await processFinalOutboundWorkOrder();
+    await processFinalOutboundWorkOrder(orderMeta);
 }
 
-async function processFinalOutboundWorkOrder() {
+async function processFinalOutboundWorkOrder(orderMeta) {
     if (typeof requireOnline === 'function' && !requireOnline('ตัดจ่ายสินค้าต้องออนไลน์')) return;
-    const destElem = document.getElementById('outboundDestination');
-    const dispatcherElem = document.getElementById('outboundDispatcher');
-    const receiverElem = document.getElementById('outboundReceiver');
-
-    const dest = destElem ? destElem.value.trim() : '';
-    const dispatcher = dispatcherElem ? dispatcherElem.value.trim() : '';
-    const receiver = receiverElem ? receiverElem.value.trim() : '';
-
-    const snList = outboundCartItems.map(i => i.sn);
-    const workOrderNo = `WO-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     if (typeof globalInventoryData !== 'undefined' && Array.isArray(globalInventoryData)) {
-        globalInventoryData = globalInventoryData.filter(i => !snList.includes(i.sn));
+        globalInventoryData = globalInventoryData.filter(i => !orderMeta.sn_list.includes(String(i.sn)));
     }
     if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
 
-    const orderPayload = {
-        work_order_no: workOrderNo,
-        destination: dest,
-        dispatcher: dispatcher,
-        receiver: receiver,
-        sn_list: snList,
-        items_count: outboundCartItems.length,
-        items_detail: [...outboundCartItems],
-        created_at: new Date().toISOString()
-    };
-
-    // 1. บันทึกลงหน่วยความจำแบบ Optimistic UI และ Local Storage ทันที เพื่อการทำงานที่รวดเร็วสูงสุด 100%
-    recentOutboundOrders.unshift(orderPayload);
+    recentOutboundOrders.unshift(orderMeta);
     saveOutboundHistoryToLocalCache(recentOutboundOrders);
 
-    // อัปเดต Feed หน้าจอทันทีโดยไม่ต้องรอผลจาก DB
     const container = document.getElementById('liveOutboundFeedContainer');
     if (container) renderOutboundHistoryFeed(container, recentOutboundOrders);
 
+    const docNo = orderMeta.doc_no || orderMeta.inv_no || 'DO000000';
+
     if (typeof playSuccessSound === 'function') playSuccessSound();
-    if (typeof showToast === 'function') showToast(`📤 ตัดจ่ายสินค้าออกจากคลังสำเร็จ ${outboundCartItems.length} รายการ [ใบงาน: ${workOrderNo}]`);
+    if (typeof showToast === 'function') showToast(`📦 ออกใบส่งสินค้าเรียบร้อย ${orderMeta.items_count} รายการ [เลขที่: ${docNo}]`);
 
     if (typeof logUserActivity === 'function') {
-        logUserActivity('OUTBOUND', `ตัดจ่ายสินค้าไปที่: ${dest} (ใบงาน: ${workOrderNo}, จำนวน ${outboundCartItems.length} รายการ)`).catch(() => {});
+        logUserActivity('OUTBOUND', `ออกใบส่งสินค้า ${docNo} จำนวน ${orderMeta.items_count} รายการ`).catch(() => {});
     }
 
-    // 2. ซิงค์ลง Supabase Database แบบเป็นเบื้องหลัง (Non-blocking Background Sync)
+    // ซิงค์ฐานข้อมูล Supabase ในเบื้องหลัง (Non-blocking Sync)
     if (navigator.onLine) {
         (async () => {
             try {
                 const client = getSupabaseClient();
                 if (client) {
-                    await client.from('warehouse_items').delete().in('sn', snList);
+                    await client.from('warehouse_items').delete().in('sn', orderMeta.sn_list);
 
-                    const extendedPayload = {
-                        work_order_no: workOrderNo,
-                        destination: dest,
-                        dispatcher: dispatcher,
-                        receiver: receiver,
-                        sn_list: snList,
-                        items_count: outboundCartItems.length,
-                        items_detail: JSON.stringify(outboundCartItems),
-                        created_at: orderPayload.created_at
+                    const dbPayload = {
+                        work_order_no: docNo,
+                        inv_no: docNo,
+                        destination: orderMeta.destination,
+                        dispatcher: orderMeta.dispatcher,
+                        receiver: orderMeta.receiver,
+                        sn_list: orderMeta.sn_list,
+                        items_count: orderMeta.items_count,
+                        items_detail: JSON.stringify(orderMeta.items_detail),
+                        company_title: orderMeta.company_title,
+                        customer_name: orderMeta.customer_name,
+                        customer_address: orderMeta.customer_address,
+                        contact_person: orderMeta.contact_person,
+                        created_at: orderMeta.created_at
                     };
 
-                    const { error: insertErr } = await client.from('outbound_orders').insert([extendedPayload]);
-                    
-                    if (insertErr) {
-                        console.warn("Retrying DB insert with standard schema fallback...", insertErr);
-                        const standardPayload = {
-                            destination: dest,
-                            dispatcher: dispatcher,
-                            receiver: receiver,
-                            sn_list: snList,
-                            items_count: outboundCartItems.length,
-                            created_at: orderPayload.created_at
-                        };
-                        await client.from('outbound_orders').insert([standardPayload]);
-                    }
+                    await client.from('outbound_orders').insert([dbPayload]);
                 }
             } catch (e) {
-                console.warn("Outbound DB background sync exception, safely cached in LocalStorage:", e);
+                console.warn("Outbound DB background sync exception:", e);
             }
         })();
     }
@@ -276,7 +304,6 @@ async function loadOutboundHistoryFromDB() {
     const container = document.getElementById('liveOutboundFeedContainer');
     if (!container) return;
 
-    // โหลดข้อมูลจาก Local Storage ขึ้นมาแสดงผลก่อนทันทีเพื่อความรวดเร็วแม่นยำ 100%
     const localCachedData = getOutboundHistoryFromLocalCache();
     let combinedData = [...localCachedData];
 
@@ -296,9 +323,9 @@ async function loadOutboundHistoryFromDB() {
                     .limit(100);
 
                 if(!error && Array.isArray(data) && data.length > 0) {
-                    const existingKeys = new Set(localCachedData.map(o => o.work_order_no || o.created_at || o.id));
+                    const existingKeys = new Set(localCachedData.map(o => o.doc_no || o.inv_no || o.work_order_no || o.created_at));
                     data.forEach(dbOrder => {
-                        const key = dbOrder.work_order_no || dbOrder.created_at || dbOrder.id;
+                        const key = dbOrder.doc_no || dbOrder.inv_no || dbOrder.work_order_no || dbOrder.created_at;
                         if (!existingKeys.has(key)) {
                             combinedData.push(dbOrder);
                         }
@@ -311,40 +338,61 @@ async function loadOutboundHistoryFromDB() {
                 }
             }
         } catch(e) {
-            console.warn("Fetch outbound history exception, using local cache:", e);
+            console.warn("Fetch outbound history exception:", e);
         }
     }
 
     if (combinedData.length === 0) {
-        container.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:0.85rem;">ยังไม่มีประวัติใบสั่งจ่ายสินค้า</div>`;
+        container.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-muted); font-size:0.85rem;">ยังไม่มีประวัติใบส่งสินค้า</div>`;
     }
 }
 
-// 🟢 Helper แสดง Feed ประวัติใบสั่งจ่าย พร้อมปุ่มเปิดดู/พิมพ์ใบงานจ่ายสินค้ามาตรฐาน (Work Order PDF)
+// 🟢 Clean Minimal Feed UI Renderer (ปรับแต่ง UX/UI ประวัติ 2 บรรทัด สวยงาม สบายตา ไม่แออัด)
 function renderOutboundHistoryFeed(container, data) {
     if (!container || !Array.isArray(data)) return;
+    
+    if (data.length === 0) {
+        container.innerHTML = `<div style="text-align:center; padding:30px; color:var(--text-muted); font-size:0.85rem;">ยังไม่มีประวัติใบส่งสินค้า</div>`;
+        return;
+    }
+
     let html = '';
     data.forEach((order, idx) => {
-        const orderId = order.work_order_no || order.id || `WO-LOCAL-${idx}`;
-        const workNo = order.work_order_no || `WO-${order.id || idx + 1}`;
+        const orderId = order.doc_no || order.inv_no || order.work_order_no || order.id || `DO-LOCAL-${idx}`;
+        const docNo = order.doc_no || order.inv_no || order.work_order_no || `DO0379${100 + idx}`;
+        const customerName = order.customer_name || order.destination || 'ลูกค้าทั่วไป / คลังปลายทาง';
+        const companyTitle = order.company_title || 'คลังหลัก';
         const totalCount = order.items_count || (order.sn_list ? order.sn_list.length : 0);
+        const dateStr = order.created_at ? new Date(order.created_at).toLocaleDateString('th-TH') : '-';
+
         html += `
-            <div class="feed-item outbound" style="position:relative; padding-bottom:8px;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <strong style="color:var(--warning); font-size:0.9rem;">📍 ${escapeHTML(order.destination)}</strong>
-                    <div>
-                        <span class="mono font-bold badge-location">${totalCount} รายการ</span>
-                        <button class="btn btn-sm" style="font-size:0.75rem; padding:2px 8px; margin-left:6px; background:var(--bg-tertiary); border:1px solid var(--border-color); font-weight:600;" onclick="viewOutboundWorkOrder('${escapeHTML(String(orderId))}')">📄 ใบงาน PDF</button>
+            <div class="feed-item outbound-card-ui" style="position:relative; padding:12px 14px; margin-bottom:10px; border-radius:10px; background:var(--bg-surface); border:1px solid var(--border-color); box-shadow:0 2px 6px rgba(0,0,0,0.03);">
+                <!-- บรรทัดที่ 1: เลขที่ใบส่งสินค้า + จำนวนรายการ + ปุ่มควบคุม -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-weight:800; color:var(--primary); font-family:var(--font-mono); font-size:0.92rem;"><i class="fa-solid fa-truck-ramp-box" style="margin-right:4px;"></i>${escapeHTML(docNo)}</span>
+                        <span class="badge-action outbound" style="font-size:0.75rem; padding:2px 8px;">${totalCount} เครื่อง</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <button class="btn btn-sm btn-primary" style="font-size:0.78rem; padding:4px 10px; font-weight:600;" onclick="viewOutboundWorkOrder('${escapeHTML(String(orderId))}')">
+                            <i class="fa-solid fa-print"></i> ใบส่งสินค้า PDF
+                        </button>
+                        <button class="btn btn-sm btn-danger" style="font-size:0.78rem; padding:4px 8px;" title="ลบประวัติส่งสินค้านี้" onclick="deleteOutboundOrderHistory('${escapeHTML(String(orderId))}')">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
                     </div>
                 </div>
-                <div style="font-size:0.8rem; color:var(--text-sub); margin-top:3px;">
-                    เลขใบงาน: <code class="mono font-bold" style="color:var(--accent-color, #2563eb);">${escapeHTML(workNo)}</code> | ผู้จ่าย: <strong>${escapeHTML(order.dispatcher)}</strong> | ผู้รับ: <strong>${escapeHTML(order.receiver)}</strong>
+
+                <!-- บรรทัดที่ 2: ชื่อผู้รับ / คลังสินค้าปลายทาง (เน้นตัวหนา เห็นชัดเจน) -->
+                <div style="font-size:0.88rem; color:var(--text-main); font-weight:700; word-break:break-word; margin-bottom:6px; line-height:1.4;">
+                    <i class="fa-solid fa-building" style="color:var(--primary); margin-right:4px;"></i> ${escapeHTML(customerName)}
                 </div>
-                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:3px; word-break:break-all;" class="mono">
-                    S/N: ${(order.sn_list || []).map(s => escapeHTML(s)).join(', ')}
-                </div>
-                <div style="font-size:0.72rem; color:var(--text-muted); text-align:right; margin-top:4px;">
-                    🕒 ${order.created_at ? escapeHTML(new Date(order.created_at).toLocaleString('th-TH')) : '-'}
+
+                <!-- บรรทัดที่ 3: แถบข้อมูลย่อย คลังต้นทาง / ผู้จ่าย / วันที่ -->
+                <div style="font-size:0.76rem; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center; border-top:1px dashed var(--border-color); padding-top:6px; flex-wrap:wrap; gap:4px;">
+                    <span><i class="fa-solid fa-warehouse"></i> ต้นทาง: <strong>${escapeHTML(companyTitle)}</strong></span>
+                    <span><i class="fa-solid fa-user-gear"></i> ผู้จ่าย: <strong>${escapeHTML(order.dispatcher || '-')}</strong></span>
+                    <span><i class="fa-regular fa-clock"></i> ${dateStr}</span>
                 </div>
             </div>
         `;
@@ -352,17 +400,64 @@ function renderOutboundHistoryFeed(container, data) {
     container.innerHTML = html;
 }
 
-// 🟢 ฟังก์ชันสำหรับเรียกดู และพิมพ์ใบงานจ่ายสินค้าออกจากคลัง (Goods Issue Note / Outbound Work Order) ดีไซน์ทางการระดับองค์กร 100%
+// 🟢 ฟังก์ชันลบประวัติการสั่งจ่าย/ส่งสินค้าออกจากระบบ
+async function deleteOutboundOrderHistory(orderId) {
+    if (!confirm(`คุณต้องการลบประวัติการส่งสินค้า [${orderId}] นี้ออกจากรายการใช่หรือไม่?`)) return;
+
+    recentOutboundOrders = recentOutboundOrders.filter(o => 
+        String(o.doc_no) !== String(orderId) && 
+        String(o.inv_no) !== String(orderId) && 
+        String(o.work_order_no) !== String(orderId) && 
+        String(o.id) !== String(orderId)
+    );
+
+    saveOutboundHistoryToLocalCache(recentOutboundOrders);
+
+    const container = document.getElementById('liveOutboundFeedContainer');
+    if (container) renderOutboundHistoryFeed(container, recentOutboundOrders);
+
+    if (navigator.onLine) {
+        try {
+            const client = getSupabaseClient();
+            if (client) {
+                await client.from('outbound_orders')
+                    .delete()
+                    .or(`work_order_no.eq.${orderId},inv_no.eq.${orderId},doc_no.eq.${orderId}`);
+            }
+        } catch (e) {
+            console.warn("Outbound DB history deletion error:", e);
+        }
+    }
+
+    if (typeof showToast === 'function') showToast(`🗑️ ลบประวัติการส่งสินค้า [${orderId}] เรียบร้อยแล้ว`);
+}
+
+// 🟢 HIGH-CAPACITY COMPACT DELIVERY NOTE GENERATOR (ใบส่งสินค้าความจุสูง รองรับ S/N จำนวนมาก)
 function viewOutboundWorkOrder(orderId) {
-    const order = recentOutboundOrders.find(o => String(o.work_order_no) === String(orderId) || String(o.id) === String(orderId));
+    const order = recentOutboundOrders.find(o => 
+        String(o.doc_no) === String(orderId) || 
+        String(o.inv_no) === String(orderId) || 
+        String(o.work_order_no) === String(orderId) || 
+        String(o.id) === String(orderId)
+    );
+
     if (!order) {
-        if (typeof showToast === 'function') showToast('❌ ไม่พบรายละเอียดใบงานจ่ายสินค้า', true);
+        if (typeof showToast === 'function') showToast('❌ ไม่พบรายละเอียดใบส่งสินค้า', true);
         return;
     }
 
-    const snList = order.sn_list || [];
-    const workNo = order.work_order_no || `WO-${order.id || 'N/A'}`;
-    const dateStr = order.created_at ? new Date(order.created_at).toLocaleString('th-TH', { dateStyle: 'long', timeStyle: 'medium' }) : '-';
+    const companyTitle = order.company_title || 'คลังสินค้า WMS System';
+    const docNo = order.doc_no || order.inv_no || order.work_order_no || 'DO000000';
+    const dateStr = order.created_at ? new Date(order.created_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }) : new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+    
+    const customerName = order.customer_name || '-';
+    const customerAddress = order.customer_address || '-';
+    const contactPerson = order.contact_person || '-';
+    const salesperson = order.salesperson || '-';
+    const dispatcher = order.dispatcher || '-';
+    const receiver = order.receiver || '-';
+    const noteText = order.destination || 'ส่งมอบสินค้า / ย้ายคลัง';
+    const showLoc = order.show_location !== undefined ? order.show_location : showOutboundLocationInDoc;
 
     let items = [];
     if (Array.isArray(order.items_detail)) {
@@ -371,45 +466,53 @@ function viewOutboundWorkOrder(orderId) {
         try { items = JSON.parse(order.items_detail); } catch(e) { items = []; }
     }
 
-    let detailRows = '';
-    let totalItemsCount = 0;
+    // 🟢 จัดกลุ่มสินค้าตามรุ่น SKU และรวม Serial Numbers
+    const groupedDocMap = groupCartItemsBySKU(items.length > 0 ? items : (order.sn_list || []).map(sn => ({ category: 'N/A', name: 'สินค้าคลัง', sn: String(sn) })));
 
-    if (items.length > 0) {
-        totalItemsCount = items.length;
-        items.forEach((item, i) => {
-            const formattedLoc = (typeof formatLocationCode === 'function') ? formatLocationCode(item.location) : (item.location || '-');
-            detailRows += `
-                <tr style="border-bottom:1px solid #e2e8f0;">
-                    <td style="text-align:center; padding:7px 8px; font-weight:600; color:#64748b; white-space:nowrap;">${i + 1}</td>
-                    <td style="padding:7px 8px; white-space:nowrap;"><span style="background:#f1f5f9; color:#0f172a; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.78rem; font-family:monospace; border:1px solid #cbd5e1;">${escapeHTML(item.category || 'N/A')}</span></td>
-                    <td style="padding:7px 8px; color:#1e293b; font-weight:500; word-break:break-word;">${escapeHTML(item.name || 'สินค้าตัดจ่ายออกจากคลัง')}</td>
-                    <td style="padding:7px 8px; font-family:monospace; font-weight:700; white-space:nowrap; color:#1e40af;">${escapeHTML(item.sn || '-')}</td>
-                    <td style="padding:7px 8px; text-align:center; white-space:nowrap;"><span style="background:#f8fafc; color:#334155; padding:2px 8px; border-radius:4px; font-family:monospace; font-size:0.8rem; border:1px solid #cbd5e1; font-weight:600;">${escapeHTML(formattedLoc)}</span></td>
-                </tr>`;
-        });
-    } else {
-        totalItemsCount = snList.length;
-        snList.forEach((sn, i) => {
-            detailRows += `
-                <tr style="border-bottom:1px solid #e2e8f0;">
-                    <td style="text-align:center; padding:7px 8px; font-weight:600; color:#64748b; white-space:nowrap;">${i + 1}</td>
-                    <td style="padding:7px 8px; white-space:nowrap;"><span style="background:#f1f5f9; color:#0f172a; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.78rem; font-family:monospace;">N/A</span></td>
-                    <td style="padding:7px 8px; color:#1e293b; font-weight:500;">สินค้าตัดจ่ายออกจากคลัง</td>
-                    <td style="padding:7px 8px; font-family:monospace; font-weight:700; white-space:nowrap; color:#1e40af;">${escapeHTML(sn)}</td>
-                    <td style="padding:7px 8px; text-align:center; white-space:nowrap;">-</td>
-                </tr>`;
-        });
-    }
+    let detailTableRows = '';
+    let rowNumber = 1;
+
+    groupedDocMap.forEach((group) => {
+        const snArray = group.items.map(i => String(i.sn)).filter(Boolean);
+        const snFormatted = snArray.join(', ');
+        const sampleItem = group.items[0] || {};
+        const meterVal = sampleItem.meter ? Number(sampleItem.meter).toLocaleString() : '-';
+        
+        let locString = '';
+        if (showLoc) {
+            const locSet = [...new Set(group.items.map(i => i.location).filter(Boolean))];
+            locString = locSet.length > 0 ? locSet.map(l => (typeof formatLocationCode === 'function') ? formatLocationCode(l) : l).join(', ') : '-';
+        }
+
+        detailTableRows += `
+            <tr style="border-bottom:1px solid #cbd5e1;">
+                <td style="text-align:center; padding:6px 4px; font-weight:bold; vertical-align:top; font-size:0.8rem;">${rowNumber}</td>
+                <td style="padding:6px 6px; font-family:'JetBrains Mono', 'Courier New', monospace; font-weight:bold; color:#0f172a; vertical-align:top; font-size:0.8rem;">${escapeHTML(group.sku)}</td>
+                <td style="padding:6px 6px; vertical-align:top;">
+                    <div style="font-weight:700; color:#1e293b; margin-bottom:3px; font-size:0.84rem;">${escapeHTML(group.name)}</div>
+                    <div style="font-family:'JetBrains Mono', 'Courier New', monospace; font-size:0.75rem; color:#0284c7; word-break:break-all; line-height:1.35; letter-spacing:-0.2px; background:#f0f9ff; padding:4px 6px; border-radius:4px; border:1px solid #bae6fd;">
+                        <strong style="color:#0369a1;">S/N (${snArray.length}):</strong> ${escapeHTML(snFormatted)}
+                    </div>
+                </td>
+                ${showLoc ? `<td style="padding:6px 4px; font-family:'JetBrains Mono', monospace; font-size:0.75rem; text-align:center; vertical-align:top;"><span style="background:#e0f2fe; color:#0369a1; padding:2px 5px; border-radius:4px; font-weight:700;">${escapeHTML(locString)}</span></td>` : ''}
+                <td style="text-align:center; padding:6px 4px; font-weight:bold; vertical-align:top; font-size:0.8rem;" class="mono">${meterVal}</td>
+                <td style="text-align:center; padding:6px 4px; font-weight:800; font-size:0.88rem; color:#0f172a; white-space:nowrap; vertical-align:top;">${group.items.length} เครื่อง</td>
+            </tr>
+        `;
+        rowNumber++;
+    });
+
+    const totalQty = items.length > 0 ? items.length : (order.sn_list ? order.sn_list.length : 0);
 
     const popupHtml = `
         <div id="workOrderModal" style="position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15, 23, 42, 0.75); display:flex; justify-content:center; align-items:center; z-index:99999; backdrop-filter:blur(4px);">
-            <div style="background:#ffffff; color:#0f172a; width:92%; max-width:850px; max-height:94vh; border-radius:12px; padding:28px; overflow-y:auto; box-shadow:0 25px 50px -12px rgba(0, 0, 0, 0.35); font-family:'Sarabun', 'TH Sarabun New', 'Segoe UI', Tahoma, sans-serif;">
+            <div style="background:#ffffff; color:#0f172a; width:94%; max-width:920px; max-height:95vh; border-radius:12px; padding:22px; overflow-y:auto; box-shadow:0 25px 50px -12px rgba(0, 0, 0, 0.35); font-family:'Prompt', 'Sarabun', 'Segoe UI', sans-serif;">
                 
-                <!-- สไตล์การพิมพ์มาตรฐาน A4 ระดับทางการ พร้อมการล็อคตำแหน่งโซนลงนามล่างสุดเสมอ -->
+                <!-- สไตล์พิมพ์มาตรฐานสากล A4 ความจุสูงสำหรับพิมพ์ใบส่งสินค้า -->
                 <style>
                     @page {
                         size: A4 portrait;
-                        margin: 10mm;
+                        margin: 6mm 8mm;
                     }
                     @media print {
                         body * { visibility: hidden !important; }
@@ -419,134 +522,137 @@ function viewOutboundWorkOrder(orderId) {
                             left: 0 !important;
                             top: 0 !important;
                             width: 100% !important;
-                            min-height: 275mm !important;
+                            min-height: 280mm !important;
                             box-sizing: border-box !important;
-                            padding: 0mm !important;
+                            padding: 2mm !important;
                             display: flex !important;
                             flex-direction: column !important;
                             justify-content: space-between !important;
                         }
                         .no-print { display: none !important; }
-                        .work-order-table th, .work-order-table td { padding: 6px 8px !important; font-size: 10.5pt !important; }
                     }
                 </style>
 
-                <div id="printableWorkOrderDocument" style="display:flex; flex-direction:column; justify-content:space-between; min-height:700px; background:#ffffff;">
+                <div id="printableWorkOrderDocument" style="display:flex; flex-direction:column; justify-content:space-between; min-height:780px; background:#ffffff; color:#000000;">
                     
-                    <!-- ส่วนเนื้อหาหลักด้านบน (Header + Destination Card + Items Table) -->
                     <div style="flex:1 0 auto;">
                         
-                        <!-- Header เอกสารทางการ -->
-                        <div style="display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #0f172a; padding-bottom:12px; margin-bottom:16px;">
-                            <div>
-                                <div style="display:flex; align-items:center; gap:8px;">
-                                    <span style="background:#0f172a; color:#ffffff; font-size:0.75rem; padding:2px 8px; border-radius:3px; font-weight:bold; letter-spacing:0.5px;">OFFICIAL DOCUMENT</span>
-                                    <span style="color:#64748b; font-size:0.78rem;">คลังสินค้ามาตรฐานความปลอดภัยสูง</span>
+                        <!-- โซนบน: หัวเอกสารใบส่งสินค้า (DELIVERY NOTE / TRANSFER NOTE) -->
+                        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #0284c7; padding-bottom:8px; margin-bottom:10px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <div style="width:40px; height:40px; background:linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color:#ffffff; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:1.3rem; box-shadow: 0 3px 8px rgba(2, 132, 199, 0.25);">
+                                    <i class="fa-solid fa-truck-arrow-right"></i>
                                 </div>
-                                <h2 style="margin:4px 0 0 0; font-size:1.4rem; color:#0f172a; font-weight:800; letter-spacing:-0.3px;">ใบจ่ายสินค้าออกจากคลัง (GOODS ISSUE NOTE)</h2>
-                                <div style="font-size:0.82rem; color:#475569; margin-top:2px;">เอกสารสำคัญควบคุมการเบิกจ่ายและเคลื่อนย้ายสินค้าออกจากคลัง</div>
+                                <div>
+                                    <div style="font-size:1.1rem; font-weight:800; color:#0f172a; line-height:1.2;">${escapeHTML(companyTitle)}</div>
+                                    <div style="font-size:0.75rem; color:#0284c7; font-weight:600;">ใบส่งสินค้าและบันทึกการย้ายคลัง (DELIVERY / TRANSFER ORDER)</div>
+                                </div>
                             </div>
                             <div style="text-align:right;">
-                                <div style="font-size:0.78rem; color:#64748b;">เลขที่ใบงาน (Work Order)</div>
-                                <div style="font-size:1.05rem; font-weight:bold; color:#1e40af; font-family:monospace; margin-top:1px;">${escapeHTML(workNo)}</div>
-                                <div style="font-size:0.75rem; color:#64748b; margin-top:4px;">วันที่ออกเอกสาร: <span style="color:#0f172a; font-weight:600;">${escapeHTML(dateStr)}</span></div>
+                                <div style="display:inline-block; background:#0284c7; color:#ffffff; padding:3px 10px; border-radius:4px; font-size:1.1rem; font-weight:800; letter-spacing:0.8px;">
+                                    ใบส่งสินค้า
+                                </div>
+                                <div style="font-size:0.72rem; color:#64748b; font-weight:600; margin-top:1px;">ORIGINAL DELIVERY NOTE</div>
                             </div>
                         </div>
 
-                        <!-- ตารางแสดงรายละเอียดสถานที่ส่งมอบและผู้เกี่ยวข้อง -->
-                        <div style="border:1px solid #cbd5e1; border-radius:8px; overflow:hidden; margin-bottom:18px; background:#f8fafc;">
-                            <div style="background:#e2e8f0; padding:6px 14px; font-size:0.8rem; font-weight:bold; color:#334155; border-bottom:1px solid #cbd5e1; display:flex; justify-content:space-between; align-items:center;">
-                                <span>📍 ข้อมูลการส่งมอบและโอนย้ายสินค้า</span>
-                                <span>สถานะ: <strong style="color:#16a34a;">อนุมัติจ่ายออกแล้ว</strong></span>
+                        <!-- Header 2 Columns (ฝั่งซ้าย: ผู้รับสินค้า & สถานที่ส่งมอบ | ฝั่งขวา: รายละเอียดเอกสาร) -->
+                        <div style="display:grid; grid-template-columns:1.2fr 0.8fr; gap:12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:10px 12px; margin-bottom:10px; font-size:0.8rem; line-height:1.5;">
+                            <div>
+                                <div style="font-weight:700; color:#0369a1; font-size:0.82rem; margin-bottom:3px; border-bottom:1px solid #cbd5e1; padding-bottom:2px;">
+                                    <i class="fa-solid fa-location-dot" style="margin-right:4px;"></i> ข้อมูลผู้รับ / สถานที่ส่งมอบ (Destination)
+                                </div>
+                                <div><strong>ผู้รับสินค้า / บริษัท :</strong> <span style="font-weight:700; color:#0f172a;">${escapeHTML(customerName)}</span></div>
+                                <div><strong>ที่อยู่จัดส่ง / พิกัดส่งมอบ :</strong> <span>${escapeHTML(customerAddress)}</span></div>
+                                <div><strong>ผู้ติดต่อ :</strong> <span style="font-weight:600;">${escapeHTML(contactPerson)}</span></div>
                             </div>
-                            <div style="padding:12px 14px; display:grid; grid-template-columns:1.3fr 0.7fr; gap:12px; font-size:0.86rem; line-height:1.6;">
-                                <div>
-                                    <div style="color:#64748b; font-size:0.78rem;">สถานที่ส่งมอบ / ปลายทางรับสินค้า:</div>
-                                    <div style="color:#0f172a; font-weight:bold; font-size:0.95rem;">${escapeHTML(order.destination)}</div>
+                            <div style="border-left:2px dashed #cbd5e1; padding-left:12px;">
+                                <div style="font-weight:700; color:#0369a1; font-size:0.82rem; margin-bottom:3px; border-bottom:1px solid #cbd5e1; padding-bottom:2px;">
+                                    <i class="fa-solid fa-file-invoice" style="margin-right:4px;"></i> ข้อมูลเอกสาร (Document Reference)
                                 </div>
-                                <div>
-                                    <div style="color:#64748b; font-size:0.78rem;">จำนวนรายการตัดจ่ายรวม:</div>
-                                    <div style="color:#1e40af; font-weight:bold; font-size:0.95rem; font-family:monospace;">${totalItemsCount} รายการ</div>
-                                </div>
-                                <div style="border-top:1px dashed #cbd5e1; padding-top:6px; margin-top:2px;">
-                                    <span style="color:#64748b; font-size:0.78rem;">ผู้จัดส่ง / เจ้าหน้าที่จ่ายสินค้า:</span>
-                                    <strong style="color:#0f172a; margin-left:6px;">${escapeHTML(order.dispatcher)}</strong>
-                                </div>
-                                <div style="border-top:1px dashed #cbd5e1; padding-top:6px; margin-top:2px;">
-                                    <span style="color:#64748b; font-size:0.78rem;">ผู้รับสินค้า / ตัวแทนรับมอบ:</span>
-                                    <strong style="color:#0f172a; margin-left:6px;">${escapeHTML(order.receiver)}</strong>
-                                </div>
+                                <div><strong>เลขที่ใบส่งสินค้า :</strong> <span style="font-family:'JetBrains Mono', monospace; font-weight:800; color:#0284c7; font-size:0.88rem;">${escapeHTML(docNo)}</span></div>
+                                <div><strong>วันที่ทำรายการ :</strong> <span>${escapeHTML(dateStr)}</span></div>
+                                <div><strong>พนักงานขาย / ผู้ประสานงาน :</strong> <span>${escapeHTML(salesperson)}</span></div>
+                                <div><strong>ผู้จ่ายสินค้าออกคลัง :</strong> <span style="font-weight:600;">${escapeHTML(dispatcher)}</span></div>
                             </div>
                         </div>
 
-                        <!-- ตารางรายการสินค้าทางการ (ตัดคอลัมน์ความยาวออกอย่างเรียบร้อย) -->
-                        <table class="work-order-table" style="width:100%; border-collapse:collapse; font-size:0.83rem; margin-bottom:16px; border:1px solid #cbd5e1;">
+                        <!-- Table Layout (เน้นพื้นที่ความจุสูงสุด) -->
+                        <table style="width:100%; border-collapse:collapse; font-size:0.8rem; margin-bottom:10px; border:1px solid #0f172a;">
                             <thead>
-                                <tr style="background:#0f172a; color:#ffffff; text-align:left;">
-                                    <th style="padding:8px; text-align:center; width:40px; border-right:1px solid #334155;">#</th>
-                                    <th style="padding:8px; width:120px; border-right:1px solid #334155;">หมวดหมู่</th>
-                                    <th style="padding:8px; border-right:1px solid #334155;">รายการสินค้า / ชื่อรุ่น</th>
-                                    <th style="padding:8px; width:180px; border-right:1px solid #334155;">หมายเลขซีเรียล (S/N)</th>
-                                    <th style="padding:8px; text-align:center; width:120px;">พิกัดจัดเก็บเดิม</th>
+                                <tr style="background:#0284c7; color:#ffffff; text-align:left;">
+                                    <th style="padding:6px 4px; text-align:center; width:35px; border-right:1px solid rgba(255,255,255,0.2); font-size:0.75rem;">#</th>
+                                    <th style="padding:6px 6px; width:130px; border-right:1px solid rgba(255,255,255,0.2); font-size:0.75rem;">รหัสสินค้า (SKU)</th>
+                                    <th style="padding:6px 6px; border-right:1px solid rgba(255,255,255,0.2); font-size:0.75rem;">รายละเอียดรุ่น & หมายเลขซีเรียล (Serial Numbers)</th>
+                                    ${showLoc ? `<th style="padding:6px 4px; text-align:center; width:95px; border-right:1px solid rgba(255,255,255,0.2); font-size:0.75rem;">พิกัดเดิม</th>` : ''}
+                                    <th style="padding:6px 4px; text-align:center; width:75px; border-right:1px solid rgba(255,255,255,0.2); font-size:0.75rem;">มิเตอร์</th>
+                                    <th style="padding:6px 4px; text-align:center; width:80px; font-size:0.75rem;">จำนวนรวม</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${detailRows}
+                                ${detailTableRows}
                             </tbody>
                             <tfoot>
-                                <tr style="background:#f1f5f9; font-weight:bold; border-top:2px solid #0f172a;">
-                                    <td colspan="4" style="padding:9px 12px; text-align:right; font-size:0.88rem; color:#1e293b;">ยอดรวมรายการสินค้าจ่ายออกจากคลังทั้งสิ้น:</td>
-                                    <td style="padding:9px 12px; text-align:center; font-family:monospace; font-size:0.95rem; color:#1e40af; font-weight:800; background:#e2e8f0;">${totalItemsCount} รายการ</td>
+                                <tr style="background:#f1f5f9; border-top:2px solid #0f172a; font-weight:bold;">
+                                    <td colspan="${showLoc ? '5' : '4'}" style="text-align:right; padding:6px 8px; font-size:0.82rem;">รวมสินค้าที่ส่งมอบทั้งหมด:</td>
+                                    <td style="text-align:center; padding:6px 8px; font-size:0.95rem; font-weight:800; color:#0284c7;">${totalQty} เครื่อง</td>
                                 </tr>
                             </tfoot>
                         </table>
 
-                        <!-- หมายเหตุความปลอดภัย -->
-                        <div style="font-size:0.73rem; color:#64748b; font-style:italic; margin-bottom:10px;">
-                            * เอกสารฉบับนี้ออกโดยระบบบริหารจัดการคลังสินค้าอัตโนมัติ ใช้สำหรับยืนยันการตัดจ่ายสินค้าออกจากระบบสต็อกอย่างเป็นทางการ
+                        <!-- หมายเหตุ -->
+                        <div style="font-size:0.78rem; color:#0f172a; font-weight:500; margin-bottom:12px; padding:6px 10px; background:#f0f9ff; border-left:3px solid #0284c7; border-radius:4px; border:1px solid #bae6fd;">
+                            <strong style="color:#0369a1;"><i class="fa-solid fa-circle-info" style="margin-right:4px;"></i> หมายเหตุ / วัตถุประสงค์การจัดส่ง :</strong>
+                            <span style="margin-left:4px; font-weight:600;">${escapeHTML(noteText)}</span>
                         </div>
                     </div>
 
-                    <!-- โซนลงนาม 3 ฝ่ายมาตรฐาน ล็อคตำแหน่งให้อยู่ส่วนล่างสุดของกระดาษเสมอ (Bottom Pinned Signatures) -->
-                    <div style="margin-top:auto; padding-top:20px; page-break-inside:avoid; break-inside:avoid;">
-                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; text-align:center; font-size:0.8rem;">
+                    <!-- Footer โซนลายเซ็นมาตรฐานสากล กระชับพอดี ไม่สูงเกินไป -->
+                    <div style="margin-top:auto; padding-top:10px; page-break-inside:avoid;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; text-align:center;">
                             
-                            <!-- ช่องลงนาม 1: ผู้จ่ายสินค้า -->
-                            <div style="border:1px solid #cbd5e1; border-radius:6px; padding:12px; background:#fafafa;">
-                                <div style="height:42px;"></div>
-                                <div style="border-top:1px dashed #64748b; width:85%; margin:0 auto 4px auto;"></div>
-                                <div style="font-weight:700; color:#0f172a;">( ${escapeHTML(order.dispatcher)} )</div>
-                                <div style="color:#475569; font-size:0.75rem; margin-top:2px; font-weight:500;">ผู้จัดส่ง / เจ้าหน้าที่จ่ายสินค้า</div>
-                                <div style="color:#94a3b8; font-size:0.72rem; margin-top:4px;">วันที่ ...../...../..........</div>
+                            <!-- ช่องที่ 1: ผู้รับสินค้า -->
+                            <div style="border:1px solid #cbd5e1; border-radius:6px; padding:8px 6px; background:#fafafa;">
+                                <div style="font-weight:700; color:#0f172a; margin-bottom:22px; font-size:0.8rem;">ผู้รับสินค้า / Consignee</div>
+                                <div style="border-bottom:1px solid #0f172a; margin:0 10px 4px 10px;"></div>
+                                <div style="font-weight:700; font-size:0.78rem;">( ${escapeHTML(receiver || '...................................................')} )</div>
+                                <div style="color:#64748b; font-size:0.72rem; margin-top:2px;">วันที่: ..... / ..... / ..........</div>
                             </div>
 
-                            <!-- ช่องลงนาม 2: ผู้ตรวจสอบ / หัวหน้าคลัง -->
-                            <div style="border:1px solid #cbd5e1; border-radius:6px; padding:12px; background:#fafafa;">
-                                <div style="height:42px;"></div>
-                                <div style="border-top:1px dashed #64748b; width:85%; margin:0 auto 4px auto;"></div>
-                                <div style="font-weight:700; color:#0f172a;">( .................................................. )</div>
-                                <div style="color:#475569; font-size:0.75rem; margin-top:2px; font-weight:500;">ผู้ตรวจสอบ / หัวหน้าคลังสินค้า</div>
-                                <div style="color:#94a3b8; font-size:0.72rem; margin-top:4px;">วันที่ ...../...../..........</div>
+                            <!-- ช่องที่ 2: ผู้จัดส่งสินค้า -->
+                            <div style="border:1px solid #cbd5e1; border-radius:6px; padding:8px 6px; background:#fafafa;">
+                                <div style="font-weight:700; color:#0f172a; margin-bottom:22px; font-size:0.8rem;">ผู้จ่ายสินค้า / Dispatcher</div>
+                                <div style="border-bottom:1px solid #0f172a; margin:0 10px 4px 10px;"></div>
+                                <div style="font-weight:700; font-size:0.78rem;">( ${escapeHTML(dispatcher || '...................................................')} )</div>
+                                <div style="color:#64748b; font-size:0.72rem; margin-top:2px;">วันที่: ..... / ..... / ..........</div>
                             </div>
 
-                            <!-- ช่องลงนาม 3: ผู้รับสินค้า -->
-                            <div style="border:1px solid #cbd5e1; border-radius:6px; padding:12px; background:#fafafa;">
-                                <div style="height:42px;"></div>
-                                <div style="border-top:1px dashed #64748b; width:85%; margin:0 auto 4px auto;"></div>
-                                <div style="font-weight:700; color:#0f172a;">( ${escapeHTML(order.receiver)} )</div>
-                                <div style="color:#475569; font-size:0.75rem; margin-top:2px; font-weight:500;">ผู้รับมอบสินค้า / ตัวแทน</div>
-                                <div style="color:#94a3b8; font-size:0.72rem; margin-top:4px;">วันที่ ...../...../..........</div>
+                            <!-- ช่องที่ 3: ผู้อนุมัติ -->
+                            <div style="border:1px solid #cbd5e1; border-radius:6px; padding:8px 6px; background:#fafafa;">
+                                <div style="font-weight:700; color:#0f172a; margin-bottom:22px; font-size:0.8rem;">ผู้อนุมัติ / Authorized By</div>
+                                <div style="border-bottom:1px dashed #64748b; margin:0 10px 4px 10px;"></div>
+                                <div style="font-weight:700; font-size:0.78rem;">( ................................................... )</div>
+                                <div style="color:#64748b; font-size:0.72rem; margin-top:2px;">วันที่: ..... / ..... / ..........</div>
                             </div>
 
+                        </div>
+
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.72rem; color:#64748b; border-top:1px solid #e2e8f0; padding-top:6px; margin-top:10px;">
+                            <span>ระบบ WMS Enterprise — เอกสารส่งมอบสินค้าและย้ายคลัง</span>
+                            <span>หน้าที่ 1/1</span>
                         </div>
                     </div>
 
                 </div>
 
-                <!-- ปุ่มควบคุมภายนอก Modal (ซ่อนอัตโนมัติขณะพิมพ์) -->
-                <div class="no-print" style="margin-top:20px; display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #e2e8f0; padding-top:16px;">
-                    <button class="btn btn-secondary" onclick="window.print()" style="padding:8px 20px; font-weight:600; display:flex; align-items:center; gap:6px; background:#f1f5f9; border:1px solid #cbd5e1; color:#0f172a;">🖨️ พิมพ์ / บันทึกเป็น PDF (A4)</button>
-                    <button class="btn btn-primary" onclick="document.getElementById('workOrderModal').remove()" style="padding:8px 20px; font-weight:600; background:#0f172a; border-color:#0f172a;">ปิดหน้าต่าง</button>
+                <!-- Control Buttons -->
+                <div class="no-print" style="margin-top:16px; display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #e2e8f0; padding-top:12px;">
+                    <button class="btn btn-secondary" onclick="window.print()" style="padding:8px 20px; font-weight:700; display:flex; align-items:center; gap:8px; background:#0284c7; border:none; color:#ffffff; box-shadow:0 3px 10px rgba(2,132,199,0.3);">
+                        <i class="fa-solid fa-print"></i> พิมพ์ใบส่งสินค้า / บันทึก PDF (A4)
+                    </button>
+                    <button class="btn btn-primary" onclick="document.getElementById('workOrderModal').remove()" style="padding:8px 20px; font-weight:600; background:#475569; border-color:#475569;">
+                        ปิดหน้าต่าง
+                    </button>
                 </div>
             </div>
         </div>

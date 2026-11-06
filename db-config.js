@@ -7,7 +7,6 @@ const SUPABASE_CONFIG = {
     key: window.WMS_ENV?.SUPABASE_KEY || 'sb_publishable_ww-mPdyom_i6S4XhfAFj9Q_vFBpTuaE'
 };
 
-// ตั้งค่า Client ให้เชื่อมต่อกับ Supabase ได้เสถียร รองรับทั้ง Session และ Fast Transport
 const _supabase = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     global: { headers: { 'x-client-info': 'wms-master-app-fast' } },
@@ -27,7 +26,7 @@ let isSyncing = false;
 let lastSyncError = '';
 let syncFailNotified = false;
 let reloadTimer = null;
-let totalDbRecordCount = 0; // ตัวแปรนับจำนวนรายการทั้งหมดใน DB แบบ Realtime
+let totalDbRecordCount = 0;
 
 function persistQueue() {
     try {
@@ -126,9 +125,7 @@ function sanitizeForDb(item) {
     };
 }
 
-// ⚡ ฟังก์ชันดึงคลังสินค้าแบบ Instant Cache Load (แสดงผลทันที 0ms + ซิงค์ DB เบื้องหลัง)
 async function loadDataFromDatabase() {
-    // 1. โหลดข้อมูลจาก Local Cache ในเครื่องขึ้นมาแสดงผลทันที (0ms ไม่ต้องรอ Network)
     const cachedData = readJSON(INVENTORY_CACHE_KEY);
     if (cachedData && cachedData.length > 0) {
         if (typeof globalInventoryData !== 'undefined') globalInventoryData = cachedData;
@@ -143,37 +140,58 @@ async function loadDataFromDatabase() {
 
     try {
         const startTime = performance.now();
-        
-        // 2. ดึงข้อมูลจริงจาก Supabase (เลือกเฉพาะฟิลด์ที่ใช้จริง เพื่อลดขนาดไฟล์)
-        const { data, error } = await _supabase
-            .from('warehouse_items')
-            .select('id, category, name, sn, meter, location, qty, created_at')
-            .order('created_at', { ascending: false });
+        let allData = [];
+        let from = 0;
+        const step = 1000;
+        let hasMore = true;
 
-        if (error) throw error;
+        while (hasMore) {
+            const { data, error } = await _supabase
+                .from('warehouse_items')
+                .select('id, category, name, sn, meter, location, qty, created_at')
+                .order('created_at', { ascending: false })
+                .range(from, from + step - 1);
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                allData = allData.concat(data);
+                from += data.length;
+                if (data.length < step) hasMore = false;
+            } else {
+                hasMore = false;
+            }
+        }
 
         const duration = Math.round(performance.now() - startTime);
         
-        // 3. บันทึกลง Local Cache และอัปเดต UI ให้เป็นข้อมูลล่าสุด
-        if (data) {
-            localStorage.setItem(INVENTORY_CACHE_KEY, JSON.stringify(data));
-            if (typeof globalInventoryData !== 'undefined') globalInventoryData = data;
-            totalDbRecordCount = data.length;
+        if (allData.length > 0) {
+            try { localStorage.setItem(INVENTORY_CACHE_KEY, JSON.stringify(allData)); } catch(e) {}
+            if (typeof globalInventoryData !== 'undefined') globalInventoryData = allData;
+            totalDbRecordCount = allData.length;
 
             if (typeof rebuildOccupiedSet === 'function') rebuildOccupiedSet();
             if (typeof filterInventoryData === 'function') filterInventoryData();
             if (typeof updateKPIs === 'function') updateKPIs();
             updateOnlineOfflineUI(true);
-            console.log(`⚡ [Instant DB Engine] โหลดและอัปเดตข้อมูลสำเร็จ: ${totalDbRecordCount} รายการ (${duration} ms)`);
+            console.log(`⚡ [Instant DB Engine] โหลดข้อมูลครบถ้วน: ${totalDbRecordCount} รายการ (${duration} ms)`);
         }
-        return data || [];
+
+        if (typeof fetchTotalMasterProductsCount === 'function') {
+            fetchTotalMasterProductsCount();
+        }
+
+        if (typeof loadMasterProductsFromDB === 'function') {
+            loadMasterProductsFromDB();
+        }
+
+        return allData;
     } catch (err) {
         console.error('❌ ดึงข้อมูลจาก DB ขัดข้อง:', err);
         return cachedData || [];
     }
 }
 
-// ⚡ ฟังก์ชันดึงเฉพาะจำนวนรายการทั้งหมดจาก DB อย่างเร็วที่สุด (Fast Count Request)
 async function fetchTotalDatabaseCount() {
     if (!navigator.onLine) return totalDbRecordCount;
     try {
@@ -192,7 +210,6 @@ async function fetchTotalDatabaseCount() {
 function initOfflineSyncEngine() {
     updateOnlineOfflineUI(navigator.onLine);
     
-    // โหลดข้อมูลแบบรวดเร็วทันทีเมื่อเริ่มต้นระบบ
     loadDataFromDatabase();
 
     window.addEventListener('online', () => {
@@ -200,10 +217,12 @@ function initOfflineSyncEngine() {
         if (typeof showToast === 'function') showToast('🌐 อินเทอร์เน็ตกลับมาแล้ว กำลังบันทึกข้อมูลเข้า DB...');
         syncOfflineQueueToDatabase();
     });
+
     window.addEventListener('offline', () => {
         updateOnlineOfflineUI(false);
-        if (typeof showToast === 'function') showToast('📴 ออฟไลน์: ข้อมูลจะถูกเก็บไว้ในเครื่องและซิงค์เมื่อเชื่อมเน็ต', true);
+        if (typeof showToast === 'function') showToast('📴 สัญญาณอินเทอร์เน็ตขาดหายไป: ระบบเปลี่ยนเป็นโหมดออฟไลน์', true);
     });
+
     window.addEventListener('beforeunload', (e) => {
         if (offlineInboundQueue.length) { e.preventDefault(); e.returnValue = ''; }
     });
@@ -212,9 +231,13 @@ function initOfflineSyncEngine() {
         if (offlineInboundQueue.length || offlineActivityQueue.length) {
             syncOfflineQueueToDatabase();
         } else if (navigator.onLine) {
-            fetchTotalDatabaseCount().then(() => updateOnlineOfflineUI(true));
+            fetchTotalDatabaseCount().then(() => {
+                updateOnlineOfflineUI(true);
+                if (typeof fetchTotalMasterProductsCount === 'function') fetchTotalMasterProductsCount();
+                if (typeof refreshInventoryDataSilently === 'function') refreshInventoryDataSilently();
+            });
         }
-    }, 8000);
+    }, 4000);
 }
 
 function updateOnlineOfflineUI(isOnline) {
@@ -258,7 +281,6 @@ function updateOnlineOfflineUI(isOnline) {
     }
 }
 
-// ⚡ ซิงค์ข้อมูลเข้า DB แบบ ยิงครั้งเดียวพร้อมกันยกแพ็ก (Bulk Batch Optimization)
 async function syncOfflineQueueToDatabase() {
     if (isSyncing || !navigator.onLine) return;
     if (!offlineInboundQueue.length && !offlineActivityQueue.length) return;
@@ -414,27 +436,16 @@ async function testDatabaseConnectionRealtime() {
     }
 }
 
-// =========================================================================
-// --- MODULE 2: ULTRA-FAST HIGH-SECURITY AUTHENTICATION ENGINE & UI ---
-// =========================================================================
-
-/**
- * สถิติยิงกักป้องกัน Brute-force & Rate Limiting ล็อกอิน
- */
 const LOGIN_RATE_LIMIT = {
     attempts: 0,
     lockoutUntil: 0,
     maxAttempts: 5,
-    lockoutDurationMs: 60 * 1000 // ล็อก 1 นาทีเมื่อคีย์ผิดเกิน 5 ครั้ง
+    lockoutDurationMs: 60 * 1000
 };
 
-/**
- * ⚡ ฟังก์ชันควบคุมการล็อกอินหลัก (Optimized Fast Execution)
- */
 async function loginUser(usernameInput, passwordInput) {
     const now = Date.now();
     
-    // Protection: ป้องกัน Brute-force Attack
     if (LOGIN_RATE_LIMIT.lockoutUntil > now) {
         const remainingSec = Math.ceil((LOGIN_RATE_LIMIT.lockoutUntil - now) / 1000);
         const warnMsg = `🔒 ระบบล็อกชั่วคราว ป้องกันการสุ่มรหัสผ่าน กรุณารออีก ${remainingSec} วินาที`;
@@ -457,7 +468,6 @@ async function loginUser(usernameInput, passwordInput) {
     try {
         let userMatch = null;
 
-        // 1. ค้นหาผู้ใช้จากตาราง users
         const { data: dbUsers, error: tableErr } = await _supabase
             .from('users')
             .select('id, username, email, password, name, role')
@@ -470,7 +480,6 @@ async function loginUser(usernameInput, passwordInput) {
             );
         }
 
-        // 2. ถ้าไม่พบจากตาราง ให้ลองผ่าน Supabase Auth
         if (!userMatch) {
             const { data: authData, error: authErr } = await _supabase.auth.signInWithPassword({
                 email: cleanUser.includes('@') ? cleanUser : `${cleanUser}@domain.com`,
@@ -488,7 +497,7 @@ async function loginUser(usernameInput, passwordInput) {
         }
 
         if (userMatch) {
-            LOGIN_RATE_LIMIT.attempts = 0; // ล้างประวัติการคีย์ผิด
+            LOGIN_RATE_LIMIT.attempts = 0;
             
             const sessionData = {
                 id: userMatch.id || Date.now(),
@@ -519,7 +528,7 @@ async function loginUser(usernameInput, passwordInput) {
             }
 
             if (typeof playErrorSound === 'function') playErrorSound();
-            if (typeof showToast === 'function') showToast('❌ ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง', true);
+            if (typeof showToast === 'color') showToast('❌ ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง', true);
             return { success: false, message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' };
         }
 
@@ -533,9 +542,6 @@ async function loginUser(usernameInput, passwordInput) {
     }
 }
 
-/**
- * สลับสถานะปุ่มล็อกอินขณะกำลังประมวลผล
- */
 function setLoginLoadingState(isLoading) {
     const btn = document.getElementById('loginSubmitBtn') || document.querySelector('#loginForm button[type="submit"]');
     if (!btn) return;
@@ -570,158 +576,35 @@ function logoutUser() {
     setTimeout(() => window.location.reload(), 500);
 }
 
-/**
- * ⚡ INSTANT INPUT ENGINE & BEAUTIFUL MODERN UI INJECTOR
- * ระบบจัดการฟิลด์กรอกข้อมูลแบบไร้ความหน่วง (0ms Lag-Free) + เพิ่มเติม UI สวยงามทรงพลัง
- */
 function setupInstantLoginUIEngine() {
-    // 1. เพิ่ม CSS สไตล์กระจกระดับพรีเมียม (Glassmorphism UI) สำหรับ Login Form
     if (!document.getElementById('wms-login-ultra-style')) {
         const style = document.createElement('style');
         style.id = 'wms-login-ultra-style';
         style.textContent = `
-            /* Container และฉากหลัง Glassmorphism */
-            .wms-login-overlay {
-                backdrop-filter: blur(16px) saturate(180%);
-                -webkit-backdrop-filter: blur(16px) saturate(180%);
-                background: rgba(15, 23, 42, 0.75);
-                transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-            }
+            .wms-login-overlay { background: rgba(15, 23, 42, 0.92) !important; }
             .wms-login-card {
-                background: rgba(30, 41, 59, 0.85);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 20px;
-                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 35px rgba(59, 130, 246, 0.15);
-                overflow: hidden;
-                will-change: transform, opacity;
+                background: #1e293b !important;
+                border: 1px solid rgba(255, 255, 255, 0.12) !important;
+                border-radius: 20px !important;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4) !important;
                 transform: translateZ(0);
+                backface-visibility: hidden;
             }
-            .wms-input-group {
-                position: relative;
-                margin-bottom: 1.25rem;
-            }
-            /* ช่องกรอกข้อมูลที่ประมวลผลเร็ว เรนเดอร์ด้วย GPU Direct */
             .wms-login-input {
-                width: 100%;
-                background: rgba(15, 23, 42, 0.6) !important;
+                width: 100%; background: rgba(15, 23, 42, 0.7) !important;
                 border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
-                color: #f8fafc !important;
-                border-radius: 12px !important;
-                padding: 12px 42px 12px 42px !important;
-                font-size: 0.95rem !important;
-                outline: none !important;
-                transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
-                will-change: border-color, box-shadow;
-                transform: translateZ(0);
+                color: #f8fafc !important; border-radius: 12px !important;
+                padding: 12px 16px !important; font-size: 0.95rem !important;
+                outline: none !important; text-rendering: optimizeSpeed !important;
+                transform: translateZ(0); will-change: auto; touch-action: manipulation;
+                transition: border-color 0.1s ease !important;
             }
             .wms-login-input:focus {
-                border-color: #3b82f6 !important;
-                box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25) !important;
-                background: rgba(15, 23, 42, 0.85) !important;
-            }
-            .wms-input-icon {
-                position: absolute;
-                left: 14px;
-                top: 50%;
-                transform: translateY(-50%);
-                color: #94a3b8;
-                font-size: 1.1rem;
-                pointer-events: none;
-                transition: color 0.15s ease;
-            }
-            .wms-login-input:focus + .wms-input-icon,
-            .wms-login-input:focus ~ .wms-input-icon {
-                color: #3b82f6;
-            }
-            /* ปุ่มซ่อน/แสดงรหัสผ่าน */
-            .wms-toggle-pwd {
-                position: absolute;
-                right: 12px;
-                top: 50%;
-                transform: translateY(-50%);
-                background: none;
-                border: none;
-                color: #94a3b8;
-                cursor: pointer;
-                padding: 6px;
-                border-radius: 6px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                transition: color 0.15s ease;
-            }
-            .wms-toggle-pwd:hover {
-                color: #f8fafc;
-            }
-            /* ปุ่มกด Login ทรงพลัง */
-            .wms-btn-login {
-                background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-                color: #ffffff;
-                font-weight: 600;
-                letter-spacing: 0.5px;
-                border: none;
-                border-radius: 12px;
-                padding: 12px 24px;
-                width: 100%;
-                cursor: pointer;
-                box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.39);
-                transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.2s ease;
-            }
-            .wms-btn-login:hover {
-                background: linear-gradient(135deg, #3d75f3 0%, #2563eb 100%);
-                box-shadow: 0 6px 20px 0 rgba(37, 99, 235, 0.55);
-            }
-            .wms-btn-login:active {
-                transform: scale(0.98);
-            }
-            .wms-btn-login:disabled {
-                opacity: 0.65;
-                cursor: not-allowed;
+                border-color: #3b82f6 !important; background: rgba(15, 23, 42, 0.9) !important;
             }
         `;
         document.head.appendChild(style);
     }
-
-    // 2. ปรับแต่ง Event Handler สำหรับฟิลด์กรอกข้อมูล ป้องกัน Event Heavy Blocking ที่ทำให้หน่วง
-    const bindFastInputListeners = () => {
-        const usernameInputs = document.querySelectorAll('input[type="text"], input[name="username"], #usernameInput, #loginUsername');
-        const passwordInputs = document.querySelectorAll('input[type="password"], input[name="password"], #passwordInput, #loginPassword');
-
-        const applyInstantProps = (inputEl) => {
-            if (!inputEl || inputEl.dataset.wmsInstantBound === 'true') return;
-            
-            // ปิดการสะกดคำอัตโนมัติของเบราว์เซอร์เพื่อความลื่นไหลสูงสุด
-            inputEl.setAttribute('autocomplete', inputEl.type === 'password' ? 'current-password' : 'username');
-            inputEl.setAttribute('autocorrect', 'off');
-            inputEl.setAttribute('autocapitalize', 'off');
-            inputEl.setAttribute('spellcheck', 'false');
-
-            // แยก Event ลบ StopPropagation ที่อาจชนกับไลบรารีอื่น
-            inputEl.addEventListener('keydown', (e) => {
-                e.stopPropagation(); // ไม่ให้ Event ลอยไปกระทบ Shortcut Keys นอก Modal
-                if (e.key === 'Enter') {
-                    const form = inputEl.closest('form');
-                    if (form) {
-                        e.preventDefault();
-                        const submitBtn = form.querySelector('button[type="submit"], #loginSubmitBtn');
-                        if (submitBtn) submitBtn.click();
-                    }
-                }
-            }, { passive: false });
-
-            inputEl.dataset.wmsInstantBound = 'true';
-        };
-
-        usernameInputs.forEach(applyInstantProps);
-        passwordInputs.forEach(applyInstantProps);
-    };
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', bindFastInputListeners);
-    } else {
-        bindFastInputListeners();
-    }
 }
 
-// เริ่มการทำงานของ Instant Input Engine ทันทีที่โหลดสคริปต์
 setupInstantLoginUIEngine();

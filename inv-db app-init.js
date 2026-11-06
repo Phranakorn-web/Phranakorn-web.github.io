@@ -3,7 +3,7 @@
 // =========================================================================
 
 // -------------------------------------------------------------------------
-// 📊 สรุปสถิติ KPI คลังสินค้า (Real-time SKU & Inventory Sync)
+// 📊 สรุปสถิติ KPI คลังสินค้า (Real-time SKU & Inventory Sync 100% ดึงจาก DB จริง)
 // -------------------------------------------------------------------------
 function updateKPIs() {
     const totalCount = globalInventoryData.length;
@@ -11,12 +11,17 @@ function updateKPIs() {
     const kpiTotal = document.getElementById('kpiTotalItems');
     if (kpiTotal) kpiTotal.textContent = totalCount.toLocaleString();
 
+    // นับจำนวน SKU ที่มีในสต็อกคลังปัจจุบัน
     const uniqueInventorySkus = new Set(
         globalInventoryData.map(i => (i.category || i.sku || '').trim()).filter(Boolean)
     ).size;
     
-    const totalMasterSkus = globalMasterProducts.length;
+    // ดึงจำนวนรวม Master SKU ทั้งหมดจริงจากฐานข้อมูล
+    const totalMasterSkus = (typeof window.totalMasterProductsCount !== 'undefined' && window.totalMasterProductsCount > 0)
+        ? window.totalMasterProductsCount
+        : (window.globalMasterProducts ? window.globalMasterProducts.length : 0);
 
+    // แสดงผลข้อมูล SKU จริงจาก DB (เช่น 44 / 2,300 SKU)
     const displaySkuText = totalMasterSkus > 0 
         ? `${uniqueInventorySkus.toLocaleString()} / ${totalMasterSkus.toLocaleString()} SKU` 
         : `${uniqueInventorySkus.toLocaleString()} SKU`;

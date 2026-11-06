@@ -19,6 +19,44 @@ let sessionCheckInterval = null;
 
 const WEBAUTHN_CREDENTIAL_KEY = 'WMS_BIOMETRIC_CREDENTIALS';
 
+// ⚡ In-Memory Cache สำหรับเก็บ Biometric Credentials เพื่อเรียกใช้งานทันที 0ms ไม่ต้องรออ่าน I/O
+let bioCredentialsCache = [];
+let bioCredentialsMap = new Map();
+
+/**
+ * ⚡ โหลดและเตรียมข้อมูล Biometric Credential ล่วงหน้าลงใน Memory (Pre-warm Cache)
+ */
+function preloadBiometricCredentials() {
+    bioCredentialsCache = [];
+    bioCredentialsMap.clear();
+
+    // 1. ค้นหาจาก LocalStorage
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(WEBAUTHN_CREDENTIAL_KEY)) {
+            try {
+                const bioItem = JSON.parse(localStorage.getItem(key));
+                if (bioItem && bioItem.rawId) {
+                    const rawUint8 = new Uint8Array(bioItem.rawId);
+                    bioCredentialsCache.push({ id: rawUint8, type: 'public-key' });
+                    bioCredentialsMap.set(bioItem.rawId.join(','), bioItem.userObj);
+                }
+            } catch(e) {}
+        }
+    }
+
+    // 2. ค้นหาจาก systemUsers
+    if (Array.isArray(systemUsers)) {
+        systemUsers.forEach(u => {
+            if (u.biometric_credential && u.biometric_credential.rawId) {
+                const rawUint8 = new Uint8Array(u.biometric_credential.rawId);
+                bioCredentialsCache.push({ id: rawUint8, type: 'public-key' });
+                bioCredentialsMap.set(u.biometric_credential.rawId.join(','), u);
+            }
+        });
+    }
+}
+
 /**
  * ⚡ จัดการและตรวจสอบสิทธิ์ Admin แบบแม่นยำ 100% (Role Normalization Engine)
  */
@@ -55,7 +93,6 @@ function applyAdminPermissionsUI() {
         'a[href*="view-settings"]',
         'button[onclick*="view-settings"]',
         'li[data-target="view-settings"]',
-        // 🔒 เพิ่ม Selector ควบคุมการแสดงผลผังตำแหน่งคลังสินค้า (view-locations) ให้เฉพาะ Admin เท่านั้น
         '#view-locations-nav',
         '#menu-view-locations',
         '[data-menu="view-locations"]',
@@ -122,11 +159,11 @@ async function checkUserSessionStatus() {
 
 function initSecurityListeners() {
     ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'].forEach(evt => {
-        document.addEventListener(evt, resetAutoLogoutTimer, false);
+        document.addEventListener(evt, resetAutoLogoutTimer, { passive: true });
     });
 
     if (sessionCheckInterval) clearInterval(sessionCheckInterval);
-    sessionCheckInterval = setInterval(checkUserSessionStatus, 3000);
+    sessionCheckInterval = setInterval(checkUserSessionStatus, 5000);
 }
 
 async function loadUsersFromDB() {
@@ -163,6 +200,8 @@ async function loadUsersFromDB() {
         console.warn("⚠️ ใช้ข้อมูลผู้ใช้สำรองในเครื่อง:", e);
     }
 
+    preloadBiometricCredentials();
+
     if (typeof renderUsersManagementTable === 'function') {
         renderUsersManagementTable();
     } else if (typeof renderUserManagementTable === 'function') {
@@ -172,7 +211,7 @@ async function loadUsersFromDB() {
 }
 
 async function initAuthSystem() {
-    // ⚡ แสดงผล UI ทันที 0ms โดยไม่ต้องรอ DB ตอบกลับ
+    // ⚡ แสดงผล UI และเตรียมอินพุตประสิทธิภาพสูงทันที 0ms
     setupCleanAuthUIAndFastInputs();
     checkBiometricHardwareSupport();
 
@@ -453,6 +492,8 @@ async function registerBiometricAuth(targetUser = null) {
                 }
             }
 
+            preloadBiometricCredentials();
+
             if (typeof playSuccessSound === 'function') playSuccessSound();
             if (typeof showToast === 'function') showToast("🖐️ ลงทะเบียนสแกนลายนิ้วมือ / Touch ID สำเร็จแล้ว!");
             return true;
@@ -465,7 +506,7 @@ async function registerBiometricAuth(targetUser = null) {
 }
 
 /**
- * ⚡ ระบบสแกนลายนิ้วมือล็อกอิน + Auto-Sync โปรไฟล์แอดมินเต็มรูปแบบ (รองรับเซิร์ฟเวอร์จริงและ Google Cloud 100%)
+ * ⚡ ระบบสแกนลายนิ้วมือล็อกอิน + Auto-Sync โปรไฟล์แอดมินเต็มรูปแบบ (ตอบสนองรวดเร็วทันที 0ms)
  */
 async function handleBiometricLogin() {
     if (!window.PublicKeyCredential) {
@@ -480,67 +521,24 @@ async function handleBiometricLogin() {
 
     const uInput = (document.getElementById('loginUsername')?.value || '').trim().toLowerCase();
     
-    let allowedCredentials = [];
-    let credentialsMap = new Map();
+    let allowedCredentials = bioCredentialsCache;
+    let credentialsMap = bioCredentialsMap;
 
-    // 1. ค้นหาจาก LocalStorage ในเครื่อง
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(WEBAUTHN_CREDENTIAL_KEY)) {
-            try {
-                const bioItem = JSON.parse(localStorage.getItem(key));
-                if (bioItem && bioItem.rawId) {
-                    const rawUint8 = new Uint8Array(bioItem.rawId);
-                    allowedCredentials.push({ id: rawUint8, type: 'public-key' });
-                    credentialsMap.set(bioItem.rawId.join(','), bioItem.userObj);
-                }
-            } catch(e) {}
-        }
+    // หาก Cache ว่าง ให้โหลดด่วนจาก LocalStorage
+    if (allowedCredentials.length === 0) {
+        preloadBiometricCredentials();
+        allowedCredentials = bioCredentialsCache;
+        credentialsMap = bioCredentialsMap;
     }
 
-    // 2. ค้นหาเพิ่มเติมจาก systemUsers
-    if (Array.isArray(systemUsers)) {
-        systemUsers.forEach(u => {
-            if (u.biometric_credential && u.biometric_credential.rawId) {
-                const rawUint8 = new Uint8Array(u.biometric_credential.rawId);
-                allowedCredentials.push({ id: rawUint8, type: 'public-key' });
-                credentialsMap.set(u.biometric_credential.rawId.join(','), u);
-            }
-        });
-    }
-
-    // 3. หากยังไม่พบ และออนไลน์ ดึงข้อมูลไบโอเมตริกโดยตรงจาก Supabase DB 
-    if (allowedCredentials.length === 0 && navigator.onLine) {
-        try {
-            const client = typeof getSupabaseClient === 'function' ? getSupabaseClient() : (typeof _supabase !== 'undefined' ? _supabase : null);
-            if (client) {
-                let query = client.from('profiles').select('username, full_name, role, biometric_credential').not('biometric_credential', 'is', null);
-                if (uInput) query = query.ilike('username', uInput);
-                const { data } = await query;
-                if (data && data.length > 0) {
-                    data.forEach(dbUser => {
-                        if (dbUser.biometric_credential && dbUser.biometric_credential.rawId) {
-                            const rawUint8 = new Uint8Array(dbUser.biometric_credential.rawId);
-                            allowedCredentials.push({ id: rawUint8, type: 'public-key' });
-                            credentialsMap.set(dbUser.biometric_credential.rawId.join(','), {
-                                username: dbUser.username,
-                                name: dbUser.full_name || dbUser.username,
-                                role: dbUser.role || 'user'
-                            });
-                        }
-                    });
-                }
-            }
-        } catch(e) {}
-    }
-
+    // หากมีการระบุ Username เจาะจง ให้กรอง Credential ของผู้ใช้คนนั้น
     if (uInput) {
         const targetBioRaw = localStorage.getItem(`${WEBAUTHN_CREDENTIAL_KEY}_${uInput}`);
         if (targetBioRaw) {
             try {
                 const parsed = JSON.parse(targetBioRaw);
                 allowedCredentials = [{ id: new Uint8Array(parsed.rawId), type: 'public-key' }];
-                credentialsMap.clear();
+                credentialsMap = new Map();
                 credentialsMap.set(parsed.rawId.join(','), parsed.userObj);
             } catch(e) {}
         }
@@ -567,6 +565,7 @@ async function handleBiometricLogin() {
             getOptions.publicKey.rpId = rpId;
         }
 
+        // ⚡ เรียกป๊อปอัปสแกนลายนิ้วมือขึ้นทันที 0ms
         const assertion = await navigator.credentials.get(getOptions);
         if (assertion) {
             const matchedRawId = Array.from(new Uint8Array(assertion.rawId)).join(',');
@@ -634,7 +633,7 @@ async function handleBiometricLogin() {
 }
 
 // =========================================================================
-// --- MODULE 9.2: CLEAN & FAST LOGIN UI & BIOMETRIC BUTTON INJECTOR ---
+// --- MODULE 9.2: ULTRA-FAST ZERO-LAG LOGIN UI & INPUT ENGINE ---
 // =========================================================================
 
 function setupCleanAuthUIAndFastInputs() {
@@ -646,9 +645,9 @@ function setupCleanAuthUIAndFastInputs() {
                 background: #ffffff !important;
                 border: 1px solid #e2e8f0 !important;
                 border-radius: 16px !important;
-                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08) !important;
                 transform: translateZ(0);
-                will-change: transform;
+                backface-visibility: hidden;
             }
             .wms-clean-input {
                 width: 100% !important;
@@ -659,12 +658,18 @@ function setupCleanAuthUIAndFastInputs() {
                 padding: 12px 16px !important;
                 font-size: 0.95rem !important;
                 outline: none !important;
-                transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+                text-rendering: optimizeSpeed !important;
+                -webkit-appearance: none !important;
+                appearance: none !important;
+                transform: translateZ(0);
+                will-change: auto;
+                touch-action: manipulation;
+                transition: border-color 0.1s ease, box-shadow 0.1s ease !important;
             }
             .wms-clean-input:focus {
                 border-color: #2563eb !important;
-                box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
                 background: #ffffff !important;
+                box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
             }
             .biometric-login-btn {
                 display: inline-flex !important;
@@ -682,15 +687,16 @@ function setupCleanAuthUIAndFastInputs() {
                 font-size: 0.95rem;
                 cursor: pointer;
                 box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
-                transition: all 0.2s ease;
+                transform: translateZ(0);
+                touch-action: manipulation;
+                transition: transform 0.15s ease, filter 0.15s ease;
             }
             .biometric-login-btn:hover {
-                transform: translateY(-1px);
-                box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+                transform: translateY(-1px) translateZ(0);
                 filter: brightness(1.05);
             }
             .biometric-login-btn:active {
-                transform: translateY(0);
+                transform: translateY(0) translateZ(0);
             }
         `;
         document.head.appendChild(style);
@@ -700,19 +706,32 @@ function setupCleanAuthUIAndFastInputs() {
         const uInput = document.getElementById('loginUsername');
         const pInput = document.getElementById('loginPassword');
 
+        if (uInput) {
+            uInput.setAttribute('autocomplete', 'username');
+            uInput.setAttribute('autocorrect', 'off');
+            uInput.setAttribute('autocapitalize', 'off');
+            uInput.setAttribute('spellcheck', 'false');
+            uInput.classList.add('wms-clean-input');
+        }
+
+        if (pInput) {
+            pInput.setAttribute('autocomplete', 'current-password');
+            pInput.setAttribute('autocorrect', 'off');
+            pInput.setAttribute('autocapitalize', 'off');
+            pInput.setAttribute('spellcheck', 'false');
+            pInput.classList.add('wms-clean-input');
+        }
+
         [uInput, pInput].forEach(input => {
             if (!input || input.dataset.fastBound === 'true') return;
-            input.classList.add('wms-clean-input');
-            input.setAttribute('autocorrect', 'off');
-            input.setAttribute('autocapitalize', 'off');
-            input.setAttribute('spellcheck', 'false');
 
+            // ⚡ ป้องกัน Event Block เพื่อตอบสนองการพิมพ์ทันทีแบบไม่ลื่นหลุดไคลเอนต์
             input.addEventListener('keydown', (e) => {
-                e.stopPropagation();
                 if (e.key === 'Enter') {
                     handleSystemLogin(e);
                 }
-            });
+            }, { passive: true });
+
             input.dataset.fastBound = 'true';
         });
 
